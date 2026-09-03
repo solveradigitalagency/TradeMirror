@@ -20,7 +20,7 @@ export default function SignOutButton() {
   return (
     <button className="temporary-signout" onClick={handleSignOut}>
       <LogOut size={17} />
-      Sign out
+      <span>Sign out</span>
     </button>
   )
 }

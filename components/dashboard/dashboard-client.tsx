@@ -880,7 +880,15 @@ export default function DashboardClient({
   }
 
   return (
-    <main className="app-dashboard">
+    <main className={`app-dashboard dashboard-view-${activeView}`}>
+      <header className="dashboard-mobile-header">
+        <a href="/" className="dashboard-mobile-brand" aria-label="TradeMirror home">
+          <img src="/trademirrorlogo.png" alt="TradeMirror" />
+        </a>
+
+        <SignOutButton />
+      </header>
+
       <aside className="dashboard-sidebar">
         <a href="/" className="dashboard-brand dashboard-logo-link">
           <img
@@ -908,6 +916,7 @@ export default function DashboardClient({
                     item.view === "settings"
                   ) {
                     setActiveView(item.view)
+                    window.scrollTo({ top: 0, behavior: "smooth" })
                   }
                 }}
               >

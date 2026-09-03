@@ -55,7 +55,7 @@ const calendarDays = [
 
 export default function Home() {
   return (
-    <main>
+    <main className="landing-page">
       <SiteHeader />
 
       <section className="hero hero-premium">
