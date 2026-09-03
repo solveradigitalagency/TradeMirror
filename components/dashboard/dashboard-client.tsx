@@ -78,6 +78,7 @@ type DiscoverProfile = {
   username: string | null
   bio: string | null
   avatar_url: string | null
+  show_public_pnl: boolean
 }
 
 type DashboardNotification = {
@@ -147,6 +148,7 @@ export default function DashboardClient({
   const [settingsName, setSettingsName] = useState(fullName)
   const [settingsUsername, setSettingsUsername] = useState("")
   const [settingsBio, setSettingsBio] = useState("")
+  const [settingsShowPublicPnl, setSettingsShowPublicPnl] = useState(true)
   const [profileAvatarUrl, setProfileAvatarUrl] = useState("")
   const [settingsAvatarFile, setSettingsAvatarFile] = useState<File | null>(null)
   const [settingsAvatarPreview, setSettingsAvatarPreview] = useState("")
@@ -186,7 +188,7 @@ export default function DashboardClient({
     async function loadGlobalProfiles() {
       const { data } = await supabase
         .from("profiles")
-        .select("id, full_name, username, bio, avatar_url")
+        .select("id, full_name, username, bio, avatar_url, show_public_pnl")
         .neq("id", userId)
         .order("full_name", { ascending: true })
 
@@ -230,7 +232,7 @@ export default function DashboardClient({
       if (actorIds.length > 0) {
         const { data: actorData } = await supabase
           .from("profiles")
-          .select("id, full_name, username, bio, avatar_url")
+          .select("id, full_name, username, bio, avatar_url, show_public_pnl")
           .in("id", actorIds)
 
         actors = (actorData || []) as DiscoverProfile[]
@@ -376,7 +378,7 @@ export default function DashboardClient({
       const [profilesResult, tradesResult, followsResult] = await Promise.all([
         supabase
           .from("profiles")
-          .select("id, full_name, username, bio, avatar_url")
+          .select("id, full_name, username, bio, avatar_url, show_public_pnl")
           .neq("id", userId)
           .order("full_name", { ascending: true }),
         supabase
@@ -413,7 +415,6 @@ export default function DashboardClient({
           )
         )
       )
-      setSelectedDiscoverProfile((current) => current || profiles[0] || null)
       setDiscoverLoading(false)
     }
 
@@ -435,7 +436,7 @@ export default function DashboardClient({
 
       const { data, error } = await supabase
         .from("profiles")
-        .select("full_name, username, bio, avatar_url")
+        .select("full_name, username, bio, avatar_url, show_public_pnl")
         .eq("id", userId)
         .maybeSingle()
 
@@ -449,6 +450,7 @@ export default function DashboardClient({
         setSettingsBio(data.bio || "")
         setProfileAvatarUrl(data.avatar_url || "")
         setSettingsAvatarPreview(data.avatar_url || "")
+        setSettingsShowPublicPnl(data.show_public_pnl !== false)
       }
 
       setSettingsLoading(false)
@@ -1040,6 +1042,7 @@ export default function DashboardClient({
       username: cleanUsername || null,
       bio: settingsBio.trim() || null,
       avatar_url: avatarUrl,
+      show_public_pnl: settingsShowPublicPnl,
       updated_at: new Date().toISOString(),
     })
 
@@ -2194,32 +2197,212 @@ export default function DashboardClient({
           </section>
         ) : activeView === "discover" ? (
           <section className="discover-view">
-            <header className="discover-page-header">
-              <div>
-                <span className="discover-page-eyebrow">TRADER DISCOVERY</span>
-                <h1>Find traders worth learning from.</h1>
-                <p>
-                  Explore public journals, compare performance, and follow
-                  traders whose process matches yours.
-                </p>
-              </div>
-            </header>
-
-            <label className="discover-search">
-              <Search size={18} />
-              <input
-                type="search"
-                placeholder="Search by trader name, username, or bio..."
-                value={discoverSearch}
-                onChange={(event) => setDiscoverSearch(event.target.value)}
-              />
-            </label>
-
             {discoverError && (
               <div className="discover-error">{discoverError}</div>
             )}
 
-            {discoverLoading ? (
+            {selectedDiscoverProfile ? (() => {
+              const profile = selectedDiscoverProfile
+              const trades = discoverTrades.filter(
+                (trade) => trade.user_id === profile.id
+              )
+              const monthTrades = trades.filter((trade) =>
+                isSameMonth(
+                  new Date(`${trade.trade_date}T12:00:00`),
+                  new Date()
+                )
+              )
+              const monthPnl = monthTrades.reduce(
+                (sum, trade) => sum + Number(trade.pnl),
+                0
+              )
+              const decidedTrades = monthTrades.filter(
+                (trade) => Number(trade.pnl) !== 0
+              )
+              const winRate = decidedTrades.length
+                ? Math.round(
+                    (decidedTrades.filter((trade) => Number(trade.pnl) > 0)
+                      .length /
+                      decidedTrades.length) *
+                      100
+                  )
+                : 0
+              const planTrades = monthTrades.filter(
+                (trade) => trade.followed_plan !== null
+              )
+              const planRate = planTrades.length
+                ? Math.round(
+                    (planTrades.filter((trade) => trade.followed_plan).length /
+                      planTrades.length) *
+                      100
+                  )
+                : 0
+
+              return (
+                <div className="public-profile-page">
+                  <button
+                    type="button"
+                    className="public-profile-back"
+                    onClick={() => setSelectedDiscoverProfile(null)}
+                  >
+                    <ChevronLeft size={18} /> Back to Discover
+                  </button>
+
+                  <header className="public-profile-hero">
+                    <div className="public-profile-identity">
+                      <div className="discover-avatar public-profile-avatar">
+                        {profile.avatar_url ? (
+                          <img src={profile.avatar_url} alt="" />
+                        ) : (
+                          (profile.full_name || profile.username || "T")
+                            .charAt(0)
+                            .toUpperCase()
+                        )}
+                      </div>
+                      <div>
+                        <span className="discover-page-eyebrow">
+                          PUBLIC TRADER PROFILE
+                        </span>
+                        <h1>{profile.full_name || "TradeMirror Trader"}</h1>
+                        <p className="public-profile-username">
+                          @{profile.username || "trader"}
+                        </p>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      className={
+                        followingIds.has(profile.id)
+                          ? "discover-following-button"
+                          : "discover-follow-button"
+                      }
+                      disabled={followLoadingId === profile.id}
+                      onClick={() => toggleFollow(profile.id)}
+                    >
+                      {followingIds.has(profile.id) ? (
+                        <UserCheck size={16} />
+                      ) : (
+                        <UserPlus size={16} />
+                      )}
+                      {followLoadingId === profile.id
+                        ? "Saving..."
+                        : followingIds.has(profile.id)
+                          ? "Following"
+                          : "Follow"}
+                    </button>
+                  </header>
+
+                  <p className="public-profile-bio">
+                    {profile.bio || "No bio added yet."}
+                  </p>
+
+                  <div className="public-profile-metrics">
+                    <article>
+                      <span>{format(new Date(), "MMMM")} P&amp;L</span>
+                      {profile.show_public_pnl ? (
+                        <strong className={monthPnl < 0 ? "loss" : "profit"}>
+                          {monthPnl > 0 ? "+" : monthPnl < 0 ? "-" : ""}$
+                          {Math.abs(monthPnl).toLocaleString()}
+                        </strong>
+                      ) : (
+                        <strong className="private-metric">
+                          <LockKeyhole size={17} /> Private
+                        </strong>
+                      )}
+                    </article>
+                    <article>
+                      <span>Win rate</span>
+                      {profile.show_public_pnl ? (
+                        <strong>{winRate}%</strong>
+                      ) : (
+                        <strong className="private-metric">
+                          <LockKeyhole size={17} /> Private
+                        </strong>
+                      )}
+                    </article>
+                    <article>
+                      <span>Public trades</span>
+                      <strong>{trades.length}</strong>
+                    </article>
+                    <article>
+                      <span>Plan followed</span>
+                      <strong>{planRate}%</strong>
+                    </article>
+                  </div>
+
+                  <section className="public-journal-section">
+                    <div className="public-journal-heading">
+                      <div>
+                        <span className="discover-page-eyebrow">
+                          PUBLIC JOURNAL
+                        </span>
+                        <h2>Journaled trades</h2>
+                      </div>
+                      <small>{trades.length} shared</small>
+                    </div>
+
+                    <div className="public-journal-list">
+                      {trades.length === 0 ? (
+                        <div className="public-journal-empty">
+                          <BookOpen size={26} />
+                          <h3>No public journal entries yet</h3>
+                          <p>This trader has not shared any trades publicly.</p>
+                        </div>
+                      ) : (
+                        trades.map((trade) => {
+                          const pnl = Number(trade.pnl)
+                          return (
+                            <article className="public-journal-entry" key={trade.id}>
+                              <div className="public-journal-entry-top">
+                                <div>
+                                  <span>
+                                    {format(
+                                      new Date(`${trade.trade_date}T12:00:00`),
+                                      "MMM d, yyyy"
+                                    )}
+                                  </span>
+                                  <h3>{trade.instrument || "Trade"}</h3>
+                                </div>
+                                {profile.show_public_pnl ? (
+                                  <strong className={pnl < 0 ? "loss" : "profit"}>
+                                    {pnl > 0 ? "+" : pnl < 0 ? "-" : ""}$
+                                    {Math.abs(pnl).toLocaleString()}
+                                  </strong>
+                                ) : (
+                                  <span className="entry-pnl-private">
+                                    <LockKeyhole size={14} /> P&amp;L private
+                                  </span>
+                                )}
+                              </div>
+
+                              <div className="public-journal-tags">
+                                {trade.direction && <span>{trade.direction}</span>}
+                                {trade.emotion && <span>{trade.emotion}</span>}
+                                {trade.followed_plan && <span>Plan followed</span>}
+                              </div>
+
+                              {trade.setup && (
+                                <div className="public-entry-copy">
+                                  <b>SETUP</b>
+                                  <p>{trade.setup}</p>
+                                </div>
+                              )}
+                              {trade.journal && (
+                                <div className="public-entry-copy">
+                                  <b>REVIEW</b>
+                                  <p>{trade.journal}</p>
+                                </div>
+                              )}
+                            </article>
+                          )
+                        })
+                      )}
+                    </div>
+                  </section>
+                </div>
+              )
+            })() : discoverLoading ? (
               <div className="discover-loading">
                 <LoaderCircle className="auth-spinner" size={24} />
                 Loading traders...
@@ -2234,19 +2417,37 @@ export default function DashboardClient({
                 </p>
               </div>
             ) : (
-              <div className="discover-layout">
+              <>
+                <header className="discover-page-header">
+                  <div>
+                    <span className="discover-page-eyebrow">TRADER DISCOVERY</span>
+                    <h1>Find traders worth learning from.</h1>
+                    <p>
+                      Explore public journals, compare performance, and follow
+                      traders whose process matches yours.
+                    </p>
+                  </div>
+                </header>
+
+                <label className="discover-search">
+                  <Search size={18} />
+                  <input
+                    type="search"
+                    placeholder="Search by trader name, username, or bio..."
+                    value={discoverSearch}
+                    onChange={(event) => setDiscoverSearch(event.target.value)}
+                  />
+                </label>
+
                 <div className="discover-card-grid">
                   {discoverCards.map(
                     ({ profile, publicTrades, totalPnl, winRate }) => (
                       <article
-                        className={`discover-trader-card ${
-                          selectedDiscoverProfile?.id === profile.id
-                            ? "discover-trader-card-active"
-                            : ""
-                        }`}
+                        className="discover-trader-card"
                         key={profile.id}
                         onClick={() => setSelectedDiscoverProfile(profile)}
                       >
+                 
                         <div className="discover-card-top">
                           <div className="discover-avatar">
                             {profile.avatar_url ? (
@@ -2293,14 +2494,18 @@ export default function DashboardClient({
                         <div className="discover-card-stats">
                           <div>
                             <span>Public P&amp;L</span>
-                            <strong className={totalPnl < 0 ? "loss" : "profit"}>
-                              {totalPnl > 0 ? "+" : totalPnl < 0 ? "-" : ""}$
-                              {Math.abs(totalPnl).toLocaleString()}
-                            </strong>
+                            {profile.show_public_pnl ? (
+                              <strong className={totalPnl < 0 ? "loss" : "profit"}>
+                                {totalPnl > 0 ? "+" : totalPnl < 0 ? "-" : ""}$
+                                {Math.abs(totalPnl).toLocaleString()}
+                              </strong>
+                            ) : (
+                              <strong>Private</strong>
+                            )}
                           </div>
                           <div>
                             <span>Win rate</span>
-                            <strong>{winRate}%</strong>
+                            <strong>{profile.show_public_pnl ? `${winRate}%` : "Private"}</strong>
                           </div>
                           <div>
                             <span>Trades</span>
@@ -2319,86 +2524,7 @@ export default function DashboardClient({
                     )
                   )}
                 </div>
-
-                <aside className="discover-profile-preview">
-                  {selectedDiscoverProfile && (() => {
-                    const profile = selectedDiscoverProfile
-                    const trades = discoverTrades.filter(
-                      (trade) => trade.user_id === profile.id
-                    )
-                    const total = trades.reduce(
-                      (sum, trade) => sum + Number(trade.pnl),
-                      0
-                    )
-
-                    return (
-                      <>
-                        <div className="discover-preview-heading">
-                          <div className="discover-avatar large">
-                            {profile.avatar_url ? (
-                              <img src={profile.avatar_url} alt="" />
-                            ) : (
-                              (profile.full_name || profile.username || "T")
-                                .charAt(0)
-                                .toUpperCase()
-                            )}
-                          </div>
-                          <div>
-                            <span>PUBLIC PROFILE</span>
-                            <h2>{profile.full_name || "TradeMirror Trader"}</h2>
-                            <p>@{profile.username || "trader"}</p>
-                          </div>
-                        </div>
-
-                        <p className="discover-preview-bio">
-                          {profile.bio || "No bio added yet."}
-                        </p>
-
-                        <div className="discover-preview-total">
-                          <span>Public P&amp;L</span>
-                          <strong className={total < 0 ? "loss" : "profit"}>
-                            {total > 0 ? "+" : total < 0 ? "-" : ""}$
-                            {Math.abs(total).toLocaleString()}
-                          </strong>
-                        </div>
-
-                        <div className="discover-recent-heading">
-                          <span>RECENT PUBLIC TRADES</span>
-                          <small>{trades.length} shared</small>
-                        </div>
-
-                        <div className="discover-recent-trades">
-                          {trades.length === 0 ? (
-                            <p>No public trades shared yet.</p>
-                          ) : (
-                            trades.slice(0, 5).map((trade) => {
-                              const pnl = Number(trade.pnl)
-                              return (
-                                <article key={trade.id}>
-                                  <div>
-                                    <strong>{trade.instrument || "Trade"}</strong>
-                                    <span>
-                                      {format(
-                                        new Date(`${trade.trade_date}T12:00:00`),
-                                        "MMM d"
-                                      )}
-                                      {trade.setup ? ` · ${trade.setup}` : ""}
-                                    </span>
-                                  </div>
-                                  <b className={pnl < 0 ? "loss" : "profit"}>
-                                    {pnl > 0 ? "+" : pnl < 0 ? "-" : ""}$
-                                    {Math.abs(pnl).toLocaleString()}
-                                  </b>
-                                </article>
-                              )
-                            })
-                          )}
-                        </div>
-                      </>
-                    )
-                  })()}
-                </aside>
-              </div>
+              </>
             )}
           </section>
         ) : (
@@ -2564,6 +2690,46 @@ export default function DashboardClient({
                       Public. Private entries and follower-only entries are not
                       included in public performance totals.
                     </p>
+                  </div>
+
+                  <label className="settings-privacy-toggle-row">
+                    <div>
+                      <strong>Show my public P&amp;L</strong>
+                      <p>
+                        Display your monthly P&amp;L and win rate on your public
+                        trader profile.
+                      </p>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={settingsShowPublicPnl}
+                      onChange={(event) =>
+                        setSettingsShowPublicPnl(event.target.checked)
+                      }
+                    />
+                    <span className="settings-toggle-track" aria-hidden="true">
+                      <i />
+                    </span>
+                  </label>
+
+                  <div className="settings-card-actions privacy-save-actions">
+                    <button
+                      className="settings-save-button"
+                      type="button"
+                      disabled={settingsSaving || settingsLoading}
+                      onClick={() => {
+                        const form = document.querySelector<HTMLFormElement>(
+                          ".settings-content-column form.settings-card"
+                        )
+                        form?.requestSubmit()
+                      }}
+                    >
+                      {settingsSaving ? (
+                        <LoaderCircle className="auth-spinner" size={17} />
+                      ) : (
+                        "Save privacy"
+                      )}
+                    </button>
                   </div>
                 </section>
 
