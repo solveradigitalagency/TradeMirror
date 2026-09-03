@@ -12439,3 +12439,6 @@ video {
     max-width: 100% !important;
   }
 }
+.dashboard-user strong {
+  color: #9fc8ff !important;
+}
