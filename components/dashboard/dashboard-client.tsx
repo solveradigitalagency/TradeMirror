@@ -1,0 +1,2503 @@
+"use client"
+
+import {
+  FormEvent,
+  useEffect,
+  useMemo,
+  useState,
+} from "react"
+import { useRouter } from "next/navigation"
+import {
+  addMonths,
+  eachDayOfInterval,
+  endOfMonth,
+  endOfWeek,
+  format,
+  isSameMonth,
+  startOfMonth,
+  startOfWeek,
+  subMonths,
+} from "date-fns"
+import {
+  BarChart3,
+  Bell,
+  BookOpen,
+  CalendarDays,
+  ChevronLeft,
+  ChevronRight,
+  LayoutDashboard,
+  LoaderCircle,
+  Plus,
+  Search,
+  Settings,
+  TrendingUp,
+  Users,
+  X,
+  ArrowRight,
+  Pencil,
+  Trash2,
+  SlidersHorizontal,
+  UserPlus,
+  UserCheck,
+  Eye,
+  ShieldCheck,
+  UserRound,
+  LockKeyhole,
+} from "lucide-react"
+
+import SignOutButton from "@/components/sign-out-button"
+import { createClient } from "@/lib/supabase/client"
+
+type Trade = {
+  id: string
+  user_id: string
+  trade_date: string
+  pnl: number | string
+  instrument: string | null
+  direction: "long" | "short" | null
+  contracts: number | null
+  setup: string | null
+  journal: string | null
+  emotion: string | null
+  followed_plan: boolean | null
+  execution_rating: string | null
+  screenshot_path: string | null
+  visibility: "private" | "followers" | "public"
+  created_at: string
+}
+
+type DashboardClientProps = {
+  userId: string
+  fullName: string
+  initialTrades: Trade[]
+}
+
+type DiscoverProfile = {
+  id: string
+  full_name: string | null
+  username: string | null
+  bio: string | null
+  avatar_url: string | null
+}
+
+const navigation = [
+  { icon: LayoutDashboard, label: "Overview", view: "overview" },
+  { icon: BarChart3, label: "Trades", view: "trades" },
+  { icon: BookOpen, label: "Journal", view: "journal" },
+  { icon: Users, label: "Discover", view: "discover" },
+  { icon: Settings, label: "Settings", view: "settings" },
+]
+
+const initialForm = {
+  pnl: "",
+  instrument: "NQ",
+  direction: "long",
+  contracts: "1",
+  setup: "",
+  journal: "",
+  emotion: "Focused",
+  followedPlan: "yes",
+  executionRating: "Good execution",
+  visibility: "private",
+}
+
+export default function DashboardClient({
+  userId,
+  fullName,
+  initialTrades,
+}: DashboardClientProps) {
+  const router = useRouter()
+  const supabase = useMemo(() => createClient(), [])
+
+  const [currentMonth, setCurrentMonth] = useState(new Date())
+  const [selectedDate, setSelectedDate] = useState(new Date())
+  const [formOpen, setFormOpen] = useState(false)
+  const [form, setForm] = useState(initialForm)
+  const [screenshot, setScreenshot] = useState<File | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [formError, setFormError] = useState("")
+  const [activeView, setActiveView] = useState<
+    "overview" | "trades" | "journal" | "discover" | "settings"
+  >("overview")
+  const [tradeSearch, setTradeSearch] = useState("")
+  const [tradeResult, setTradeResult] = useState("all")
+  const [tradeDirection, setTradeDirection] = useState("all")
+  const [tradePlan, setTradePlan] = useState("all")
+  const [selectedLedgerTrade, setSelectedLedgerTrade] =
+    useState<Trade | null>(initialTrades[0] || null)
+  const [discoverProfiles, setDiscoverProfiles] = useState<DiscoverProfile[]>([])
+  const [discoverTrades, setDiscoverTrades] = useState<Trade[]>([])
+  const [followingIds, setFollowingIds] = useState<Set<string>>(new Set())
+  const [discoverSearch, setDiscoverSearch] = useState("")
+  const [discoverLoading, setDiscoverLoading] = useState(false)
+  const [discoverError, setDiscoverError] = useState("")
+  const [selectedDiscoverProfile, setSelectedDiscoverProfile] =
+    useState<DiscoverProfile | null>(null)
+  const [followLoadingId, setFollowLoadingId] = useState<string | null>(null)
+  const [settingsName, setSettingsName] = useState(fullName)
+  const [settingsUsername, setSettingsUsername] = useState("")
+  const [settingsBio, setSettingsBio] = useState("")
+  const [profileAvatarUrl, setProfileAvatarUrl] = useState("")
+  const [settingsAvatarFile, setSettingsAvatarFile] = useState<File | null>(null)
+  const [settingsAvatarPreview, setSettingsAvatarPreview] = useState("")
+  const [settingsLoading, setSettingsLoading] = useState(false)
+  const [settingsSaving, setSettingsSaving] = useState(false)
+  const [settingsMessage, setSettingsMessage] = useState("")
+  const [settingsError, setSettingsError] = useState("")
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [deleteConfirmation, setDeleteConfirmation] = useState("")
+  const [deletingAccount, setDeletingAccount] = useState(false)
+  const [journalSearch, setJournalSearch] = useState("")
+  const [journalResult, setJournalResult] = useState("all")
+  const [selectedJournalTrade, setSelectedJournalTrade] =
+    useState<Trade | null>(initialTrades[0] || null)
+
+  const [editingTrade, setEditingTrade] = useState<Trade | null>(null)
+  const [deletingTradeId, setDeletingTradeId] = useState<string | null>(null)
+  const [screenshotUrls, setScreenshotUrls] = useState<
+    Record<string, string>
+  >({})
+  const [previewScreenshot, setPreviewScreenshot] = useState<{
+    url: string
+    instrument: string
+  } | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadScreenshots() {
+      const screenshotPaths = Array.from(
+        new Set(
+          initialTrades
+            .map((trade) => trade.screenshot_path)
+            .filter((path): path is string => Boolean(path))
+        )
+      )
+
+      if (screenshotPaths.length === 0) {
+        setScreenshotUrls({})
+        return
+      }
+
+      const results = await Promise.all(
+        screenshotPaths.map(async (path) => {
+          const { data, error } = await supabase.storage
+            .from("trade-screenshots")
+            .createSignedUrl(path, 60 * 60)
+
+          if (error || !data?.signedUrl) return null
+
+          return { path, url: data.signedUrl }
+        })
+      )
+
+      if (cancelled) return
+
+      const urls: Record<string, string> = {}
+
+      results.forEach((result) => {
+        if (result) urls[result.path] = result.url
+      })
+
+      setScreenshotUrls(urls)
+    }
+
+    loadScreenshots()
+
+    return () => {
+      cancelled = true
+    }
+  }, [initialTrades, supabase])
+
+  const firstName = fullName.split(" ")[0]
+
+  // === Addition for typed greeting effect ===
+  const [typedGreeting, setTypedGreeting] = useState("")
+  const [typingComplete, setTypingComplete] = useState(false)
+
+  useEffect(() => {
+    const hour = new Date().getHours()
+
+    const greeting =
+      hour < 12
+        ? "Good morning"
+        : hour < 18
+          ? "Good afternoon"
+          : "Good evening"
+
+    const fullGreeting = `${greeting}, ${firstName}`
+
+    let characterIndex = 0
+    let typingInterval: number | undefined
+
+    const startDelay = window.setTimeout(() => {
+      typingInterval = window.setInterval(() => {
+        characterIndex += 1
+
+        setTypedGreeting(
+          fullGreeting.slice(0, characterIndex)
+        )
+
+        if (characterIndex >= fullGreeting.length) {
+          window.clearInterval(typingInterval)
+          setTypingComplete(true)
+        }
+      }, 55)
+    }, 250)
+
+    return () => {
+      window.clearTimeout(startDelay)
+
+      if (typingInterval !== undefined) {
+        window.clearInterval(typingInterval)
+      }
+    }
+  }, [firstName])
+
+  useEffect(() => {
+    if (activeView !== "discover") return
+
+    let cancelled = false
+
+    async function loadDiscover() {
+      setDiscoverLoading(true)
+      setDiscoverError("")
+
+      const [profilesResult, tradesResult, followsResult] = await Promise.all([
+        supabase
+          .from("profiles")
+          .select("id, full_name, username, bio, avatar_url")
+          .neq("id", userId)
+          .order("full_name", { ascending: true }),
+        supabase
+          .from("trades")
+          .select("*")
+          .eq("visibility", "public")
+          .order("trade_date", { ascending: false }),
+        supabase
+          .from("follows")
+          .select("following_id")
+          .eq("follower_id", userId),
+      ])
+
+      if (cancelled) return
+
+      const error =
+        profilesResult.error || tradesResult.error || followsResult.error
+
+      if (error) {
+        setDiscoverError(
+          "Discover needs the supplied Supabase setup before profiles can load."
+        )
+        setDiscoverLoading(false)
+        return
+      }
+
+      const profiles = (profilesResult.data || []) as DiscoverProfile[]
+      setDiscoverProfiles(profiles)
+      setDiscoverTrades((tradesResult.data || []) as Trade[])
+      setFollowingIds(
+        new Set(
+          (followsResult.data || []).map(
+            (follow) => follow.following_id as string
+          )
+        )
+      )
+      setSelectedDiscoverProfile((current) => current || profiles[0] || null)
+      setDiscoverLoading(false)
+    }
+
+    loadDiscover()
+
+    return () => {
+      cancelled = true
+    }
+  }, [activeView, supabase, userId])
+
+  useEffect(() => {
+    if (activeView !== "settings") return
+
+    let cancelled = false
+
+    async function loadSettings() {
+      setSettingsLoading(true)
+      setSettingsError("")
+
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("full_name, username, bio, avatar_url")
+        .eq("id", userId)
+        .maybeSingle()
+
+      if (cancelled) return
+
+      if (error) {
+        setSettingsError(error.message)
+      } else if (data) {
+        setSettingsName(data.full_name || fullName)
+        setSettingsUsername(data.username || "")
+        setSettingsBio(data.bio || "")
+        setProfileAvatarUrl(data.avatar_url || "")
+        setSettingsAvatarPreview(data.avatar_url || "")
+      }
+
+      setSettingsLoading(false)
+    }
+
+    loadSettings()
+
+    return () => {
+      cancelled = true
+    }
+  }, [activeView, fullName, supabase, userId])
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadCurrentAvatar() {
+      const { data } = await supabase
+        .from("profiles")
+        .select("avatar_url")
+        .eq("id", userId)
+        .maybeSingle()
+
+      if (!cancelled && data?.avatar_url) {
+        setProfileAvatarUrl(data.avatar_url)
+        setSettingsAvatarPreview(data.avatar_url)
+      }
+    }
+
+    loadCurrentAvatar()
+
+    return () => {
+      cancelled = true
+    }
+  }, [supabase, userId])
+  // === End addition for typed greeting effect ===
+
+  const calendarDays = useMemo(() => {
+    const firstCalendarDay = startOfWeek(startOfMonth(currentMonth), {
+      weekStartsOn: 1,
+    })
+
+    const lastCalendarDay = endOfWeek(endOfMonth(currentMonth), {
+      weekStartsOn: 1,
+    })
+
+    return eachDayOfInterval({
+      start: firstCalendarDay,
+      end: lastCalendarDay,
+    })
+  }, [currentMonth])
+
+  const monthlyTrades = useMemo(() => {
+    const monthKey = format(currentMonth, "yyyy-MM")
+
+    const tradesFromMonth = initialTrades.filter((trade) =>
+      trade.trade_date.startsWith(monthKey)
+    )
+
+    const latestTradeByDate = new Map<string, Trade>()
+
+    tradesFromMonth.forEach((trade) => {
+      const existingTrade = latestTradeByDate.get(trade.trade_date)
+
+      if (
+        !existingTrade ||
+        new Date(trade.created_at).getTime() >
+          new Date(existingTrade.created_at).getTime()
+      ) {
+        latestTradeByDate.set(trade.trade_date, trade)
+      }
+    })
+
+    return Array.from(latestTradeByDate.values())
+  }, [initialTrades, currentMonth])
+
+  const selectedDateKey = format(selectedDate, "yyyy-MM-dd")
+
+  const selectedTrades = initialTrades.filter(
+    (trade) => trade.trade_date === selectedDateKey
+  )
+
+  const totalPnl = monthlyTrades.reduce(
+    (total, trade) => total + Number(trade.pnl),
+    0
+  )
+
+  const winningTrades = monthlyTrades.filter(
+    (trade) => Number(trade.pnl) > 0
+  )
+
+  const losingTrades = monthlyTrades.filter(
+    (trade) => Number(trade.pnl) < 0
+  )
+
+  const winRate =
+    winningTrades.length + losingTrades.length > 0
+      ? Math.round(
+          (winningTrades.length /
+            (winningTrades.length + losingTrades.length)) *
+            100
+        )
+      : 0
+
+  const grossProfit = winningTrades.reduce(
+    (total, trade) => total + Number(trade.pnl),
+    0
+  )
+
+  const grossLoss = Math.abs(
+    losingTrades.reduce(
+      (total, trade) => total + Number(trade.pnl),
+      0
+    )
+  )
+
+  const profitFactor =
+    grossLoss > 0 ? (grossProfit / grossLoss).toFixed(2) : "—"
+
+  const ratedTrades = monthlyTrades.filter(
+    (trade) => trade.followed_plan !== null
+  )
+
+  const planFollowed =
+    ratedTrades.length > 0
+      ? Math.round(
+          (ratedTrades.filter((trade) => trade.followed_plan).length /
+            ratedTrades.length) *
+            100
+        )
+      : 0
+
+  function openTradeForm(date = new Date(), trade?: Trade) {
+    setSelectedDate(date)
+    setCurrentMonth(date)
+    setScreenshot(null)
+    setFormError("")
+
+    if (trade) {
+      setEditingTrade(trade)
+
+      setForm({
+        pnl: String(trade.pnl),
+        instrument: trade.instrument || "NQ",
+        direction: trade.direction || "long",
+        contracts: String(trade.contracts || 1),
+        setup: trade.setup || "",
+        journal: trade.journal || "",
+        emotion: trade.emotion || "Focused",
+        followedPlan: trade.followed_plan === false ? "no" : "yes",
+        executionRating: trade.execution_rating || "Good execution",
+        visibility: trade.visibility || "private",
+      })
+    } else {
+      setEditingTrade(null)
+      setForm(initialForm)
+    }
+
+    setFormOpen(true)
+  }
+
+  async function saveTrade(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+
+    setSaving(true)
+    setFormError("")
+
+    let screenshotPath = editingTrade?.screenshot_path || null
+    let newlyUploadedPath: string | null = null
+
+    if (screenshot) {
+      const safeName = screenshot.name.replace(/[^a-zA-Z0-9._-]/g, "-")
+      newlyUploadedPath = `${userId}/${crypto.randomUUID()}-${safeName}`
+      screenshotPath = newlyUploadedPath
+
+      const { error: uploadError } = await supabase.storage
+        .from("trade-screenshots")
+        .upload(newlyUploadedPath, screenshot)
+
+      if (uploadError) {
+        setFormError(uploadError.message)
+        setSaving(false)
+        return
+      }
+    }
+
+    const tradeData = {
+      user_id: userId,
+      trade_date: selectedDateKey,
+      pnl: Number(form.pnl),
+      instrument: form.instrument.trim().toUpperCase(),
+      direction: form.direction,
+      contracts: Number(form.contracts),
+      setup: form.setup.trim() || null,
+      journal: form.journal.trim() || null,
+      emotion: form.emotion,
+      followed_plan: form.followedPlan === "yes",
+      execution_rating: form.executionRating,
+      visibility: form.visibility,
+      screenshot_path: screenshotPath,
+    }
+
+    const { error } = editingTrade
+      ? await supabase
+          .from("trades")
+          .update(tradeData)
+          .eq("id", editingTrade.id)
+          .eq("user_id", userId)
+      : await supabase.from("trades").insert(tradeData)
+
+    if (error) {
+      if (newlyUploadedPath) {
+        await supabase.storage
+          .from("trade-screenshots")
+          .remove([newlyUploadedPath])
+      }
+
+      setFormError(error.message)
+      setSaving(false)
+      return
+    }
+
+    if (
+      editingTrade?.screenshot_path &&
+      newlyUploadedPath &&
+      editingTrade.screenshot_path !== newlyUploadedPath
+    ) {
+      await supabase.storage
+        .from("trade-screenshots")
+        .remove([editingTrade.screenshot_path])
+    }
+
+    setSaving(false)
+    setFormOpen(false)
+    setEditingTrade(null)
+    setScreenshot(null)
+
+    router.refresh()
+  }
+
+  async function deleteTrade(trade: Trade) {
+    const confirmed = window.confirm(
+      `Delete this ${trade.instrument || "trade"} entry? This cannot be undone.`
+    )
+
+    if (!confirmed) return
+
+    setDeletingTradeId(trade.id)
+
+    const { error } = await supabase
+      .from("trades")
+      .delete()
+      .eq("id", trade.id)
+      .eq("user_id", userId)
+
+    if (error) {
+      window.alert(error.message)
+      setDeletingTradeId(null)
+      return
+    }
+
+    if (trade.screenshot_path) {
+      await supabase.storage
+        .from("trade-screenshots")
+        .remove([trade.screenshot_path])
+    }
+
+    setDeletingTradeId(null)
+    router.refresh()
+  }
+
+  function getDailyPnl(date: Date) {
+    const dateKey = format(date, "yyyy-MM-dd")
+
+    return initialTrades
+      .filter((trade) => trade.trade_date === dateKey)
+      .reduce((total, trade) => total + Number(trade.pnl), 0)
+  }
+
+  const filteredJournalTrades = useMemo(() => {
+    const search = journalSearch.trim().toLowerCase()
+
+    return [...initialTrades]
+      .filter((trade) => {
+        const pnl = Number(trade.pnl)
+        const matchesResult =
+          journalResult === "all" ||
+          (journalResult === "wins" && pnl > 0) ||
+          (journalResult === "losses" && pnl < 0) ||
+          (journalResult === "breakeven" && pnl === 0)
+
+        const matchesSearch =
+          !search ||
+          [
+            trade.instrument,
+            trade.setup,
+            trade.journal,
+            trade.emotion,
+            trade.execution_rating,
+          ].some((value) => value?.toLowerCase().includes(search))
+
+        return matchesResult && matchesSearch
+      })
+      .sort(
+        (a, b) =>
+          new Date(b.trade_date).getTime() -
+          new Date(a.trade_date).getTime()
+      )
+  }, [initialTrades, journalResult, journalSearch])
+
+  const filteredLedgerTrades = useMemo(() => {
+    const search = tradeSearch.trim().toLowerCase()
+
+    return [...initialTrades]
+      .filter((trade) => {
+        const pnl = Number(trade.pnl)
+        const matchesSearch =
+          !search ||
+          [trade.instrument, trade.setup, trade.journal].some((value) =>
+            value?.toLowerCase().includes(search)
+          )
+        const matchesResult =
+          tradeResult === "all" ||
+          (tradeResult === "wins" && pnl > 0) ||
+          (tradeResult === "losses" && pnl < 0) ||
+          (tradeResult === "breakeven" && pnl === 0)
+        const matchesDirection =
+          tradeDirection === "all" || trade.direction === tradeDirection
+        const matchesPlan =
+          tradePlan === "all" ||
+          (tradePlan === "followed" && trade.followed_plan === true) ||
+          (tradePlan === "missed" && trade.followed_plan === false)
+
+        return (
+          matchesSearch &&
+          matchesResult &&
+          matchesDirection &&
+          matchesPlan
+        )
+      })
+      .sort(
+        (a, b) =>
+          new Date(b.trade_date).getTime() -
+          new Date(a.trade_date).getTime()
+      )
+  }, [
+    initialTrades,
+    tradeDirection,
+    tradePlan,
+    tradeResult,
+    tradeSearch,
+  ])
+
+  const ledgerStats = useMemo(() => {
+    const wins = initialTrades.filter((trade) => Number(trade.pnl) > 0)
+    const losses = initialTrades.filter((trade) => Number(trade.pnl) < 0)
+    const averageWinner = wins.length
+      ? wins.reduce((sum, trade) => sum + Number(trade.pnl), 0) /
+        wins.length
+      : 0
+    const averageLoser = losses.length
+      ? losses.reduce((sum, trade) => sum + Number(trade.pnl), 0) /
+        losses.length
+      : 0
+
+    const pnlByInstrument = new Map<string, number>()
+    initialTrades.forEach((trade) => {
+      const instrument = trade.instrument || "Other"
+      pnlByInstrument.set(
+        instrument,
+        (pnlByInstrument.get(instrument) || 0) + Number(trade.pnl)
+      )
+    })
+
+    const bestInstrument = [...pnlByInstrument.entries()].sort(
+      (a, b) => b[1] - a[1]
+    )[0]
+
+    return {
+      total: initialTrades.length,
+      averageWinner,
+      averageLoser,
+      bestInstrument,
+    }
+  }, [initialTrades])
+
+  const discoverCards = useMemo(() => {
+    const search = discoverSearch.trim().toLowerCase()
+
+    return discoverProfiles
+      .filter((profile) =>
+        !search
+          ? true
+          : [profile.full_name, profile.username, profile.bio].some((value) =>
+              value?.toLowerCase().includes(search)
+            )
+      )
+      .map((profile) => {
+        const publicTrades = discoverTrades.filter(
+          (trade) => trade.user_id === profile.id
+        )
+        const totalPnl = publicTrades.reduce(
+          (sum, trade) => sum + Number(trade.pnl),
+          0
+        )
+        const decidedTrades = publicTrades.filter(
+          (trade) => Number(trade.pnl) !== 0
+        )
+        const winRate = decidedTrades.length
+          ? Math.round(
+              (decidedTrades.filter((trade) => Number(trade.pnl) > 0).length /
+                decidedTrades.length) *
+                100
+            )
+          : 0
+
+        return { profile, publicTrades, totalPnl, winRate }
+      })
+      .sort((a, b) => b.publicTrades.length - a.publicTrades.length)
+  }, [discoverProfiles, discoverSearch, discoverTrades])
+
+  async function toggleFollow(profileId: string) {
+    setFollowLoadingId(profileId)
+    const isFollowing = followingIds.has(profileId)
+
+    const { error } = isFollowing
+      ? await supabase
+          .from("follows")
+          .delete()
+          .eq("follower_id", userId)
+          .eq("following_id", profileId)
+      : await supabase.from("follows").insert({
+          follower_id: userId,
+          following_id: profileId,
+        })
+
+    if (!error) {
+      setFollowingIds((current) => {
+        const next = new Set(current)
+        if (isFollowing) next.delete(profileId)
+        else next.add(profileId)
+        return next
+      })
+    } else {
+      setDiscoverError(error.message)
+    }
+
+    setFollowLoadingId(null)
+  }
+
+  async function saveSettings(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setSettingsSaving(true)
+    setSettingsMessage("")
+    setSettingsError("")
+
+    const cleanUsername = settingsUsername
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9_]/g, "")
+
+    let avatarUrl = profileAvatarUrl || null
+
+    if (settingsAvatarFile) {
+      const extension =
+        settingsAvatarFile.name.split(".").pop()?.toLowerCase() || "jpg"
+      const avatarPath = `${userId}/avatar.${extension}`
+
+      const { error: uploadError } = await supabase.storage
+        .from("profile-avatars")
+        .upload(avatarPath, settingsAvatarFile, {
+          upsert: true,
+          contentType: settingsAvatarFile.type,
+          cacheControl: "3600",
+        })
+
+      if (uploadError) {
+        setSettingsError(uploadError.message)
+        setSettingsSaving(false)
+        return
+      }
+
+      const { data: publicUrlData } = supabase.storage
+        .from("profile-avatars")
+        .getPublicUrl(avatarPath)
+
+      avatarUrl = `${publicUrlData.publicUrl}?v=${Date.now()}`
+    }
+
+    const { error } = await supabase.from("profiles").upsert({
+      id: userId,
+      full_name: settingsName.trim(),
+      username: cleanUsername || null,
+      bio: settingsBio.trim() || null,
+      avatar_url: avatarUrl,
+      updated_at: new Date().toISOString(),
+    })
+
+    if (error) {
+      setSettingsError(
+        error.code === "23505"
+          ? "That username is already taken."
+          : error.message
+      )
+    } else {
+      setSettingsUsername(cleanUsername)
+      setProfileAvatarUrl(avatarUrl || "")
+      setSettingsAvatarPreview(avatarUrl || "")
+      setSettingsAvatarFile(null)
+      setSettingsMessage("Your profile has been updated.")
+      router.refresh()
+    }
+
+    setSettingsSaving(false)
+  }
+
+  async function deleteAccount() {
+    if (deleteConfirmation !== "DELETE") return
+
+    setDeletingAccount(true)
+    setSettingsError("")
+
+    const response = await fetch("/api/account", {
+      method: "DELETE",
+    })
+
+    const result = await response.json().catch(() => null)
+
+    if (!response.ok) {
+      setSettingsError(
+        result?.error || "Your account could not be deleted."
+      )
+      setDeletingAccount(false)
+      setDeleteDialogOpen(false)
+      return
+    }
+
+    await supabase.auth.signOut({ scope: "local" })
+    window.location.assign("/?account=deleted")
+  }
+
+  return (
+    <main className="app-dashboard">
+      <aside className="dashboard-sidebar">
+        <a href="/" className="dashboard-brand dashboard-logo-link">
+          <img
+            src="/trademirrorlogo.png"
+            alt="TradeMirror"
+            className="dashboard-logo-image"
+          />
+        </a>
+
+        <nav className="dashboard-navigation">
+          {navigation.map((item) => {
+            const Icon = item.icon
+            const isActive = item.view === activeView
+
+            return (
+              <button
+                className={isActive ? "dashboard-nav-active" : ""}
+                key={item.label}
+                onClick={() => {
+                  if (
+                    item.view === "overview" ||
+                    item.view === "trades" ||
+                    item.view === "journal" ||
+                    item.view === "discover" ||
+                    item.view === "settings"
+                  ) {
+                    setActiveView(item.view)
+                  }
+                }}
+              >
+                <Icon size={19} />
+                <span>{item.label}</span>
+              </button>
+            )
+          })}
+        </nav>
+
+        <div className="dashboard-user">
+          <div className={`dashboard-avatar ${profileAvatarUrl ? "has-image" : ""}`}>
+            {profileAvatarUrl ? (
+              <img src={profileAvatarUrl} alt={`${fullName} profile`} />
+            ) : (
+              firstName.charAt(0).toUpperCase()
+            )}
+          </div>
+
+          <div>
+            <strong>{fullName}</strong>
+            <span>Free plan</span>
+          </div>
+        </div>
+
+        <SignOutButton />
+      </aside>
+
+      <section className="dashboard-content">
+        {activeView === "overview" ? (
+          <>
+        <header className="dashboard-header">
+          <div className="dashboard-greeting">
+            <h1 className="typing-greeting">
+              {typedGreeting}
+              <span
+                className={`typing-cursor ${
+                  typingComplete ? "typing-cursor-complete" : ""
+                }`}
+                aria-hidden="true"
+              />
+            </h1>
+            <p
+              className={
+                typingComplete ? "greeting-subtitle-visible" : ""
+              }
+            >
+              Here’s how your trading is developing.
+            </p>
+          </div>
+
+          <div className="dashboard-header-actions">
+            <button className="dashboard-icon-button" aria-label="Search">
+              <Search size={19} />
+            </button>
+
+            <button
+              className="dashboard-icon-button"
+              aria-label="Notifications"
+            >
+              <Bell size={19} />
+            </button>
+
+            <button
+              className="log-trade-button"
+              onClick={() => openTradeForm(new Date())}
+            >
+              <Plus size={18} />
+              Log a trade
+            </button>
+          </div>
+        </header>
+
+        <section className="dashboard-metrics">
+          <article>
+            <div>
+              <span>Monthly P&amp;L</span>
+              <strong className={totalPnl < 0 ? "loss" : "profit"}>
+                {totalPnl >= 0 ? "+" : "-"}$
+                {Math.abs(totalPnl).toLocaleString()}
+              </strong>
+            </div>
+
+            <TrendingUp size={21} />
+          </article>
+
+          <article>
+            <div>
+              <span>Win rate</span>
+              <strong>{winRate}%</strong>
+            </div>
+
+            <div className="metric-mini-bar">
+              <span style={{ width: `${winRate}%` }} />
+            </div>
+          </article>
+
+          <article>
+            <div>
+              <span>Profit factor</span>
+              <strong>{profitFactor}</strong>
+            </div>
+
+            <BarChart3 size={21} />
+          </article>
+
+          <article>
+            <div>
+              <span>Plan followed</span>
+              <strong>{planFollowed}%</strong>
+            </div>
+
+            <div className="metric-mini-bar">
+              <span style={{ width: `${planFollowed}%` }} />
+            </div>
+          </article>
+        </section>
+
+        <section className="dashboard-main-grid">
+          <article className="dashboard-calendar">
+            <div className="dashboard-card-heading">
+              <div>
+                <span>P&amp;L CALENDAR</span>
+                <h2>{format(currentMonth, "MMMM yyyy")}</h2>
+              </div>
+
+              <div className="calendar-month-controls">
+                <button
+                  aria-label="Previous month"
+                  onClick={() =>
+                    setCurrentMonth((month) => subMonths(month, 1))
+                  }
+                >
+                  <ChevronLeft size={17} />
+                </button>
+
+                <button onClick={() => setCurrentMonth(new Date())}>
+                  Today
+                </button>
+
+                <button
+                  aria-label="Next month"
+                  onClick={() =>
+                    setCurrentMonth((month) => addMonths(month, 1))
+                  }
+                >
+                  <ChevronRight size={17} />
+                </button>
+              </div>
+            </div>
+
+            <div className="dashboard-weekdays">
+              {["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"].map(
+                (day) => (
+                  <span key={day}>{day}</span>
+                )
+              )}
+            </div>
+
+            <div className="dashboard-calendar-grid">
+              {calendarDays.map((day) => {
+                const dateKey = format(day, "yyyy-MM-dd")
+
+                const dayTrades = initialTrades.filter(
+                  (trade) => trade.trade_date === dateKey
+                )
+
+                const latestTrade = [...dayTrades].sort(
+                  (a, b) =>
+                    new Date(b.created_at).getTime() -
+                    new Date(a.created_at).getTime()
+                )[0]
+
+                const dayPnl = latestTrade
+                  ? Number(latestTrade.pnl)
+                  : 0
+
+                const selected = dateKey === selectedDateKey
+
+                return (
+                  <button
+                    className={`dashboard-day ${
+                      selected ? "dashboard-selected-day" : ""
+                    } ${
+                      !isSameMonth(day, currentMonth)
+                        ? "outside-month"
+                        : ""
+                    }`}
+                    key={day.toISOString()}
+                    onClick={() => {
+                      setSelectedDate(day)
+                    }}
+                    onDoubleClick={() => openTradeForm(day)}
+                  >
+                    <span>{format(day, "d")}</span>
+
+                    {latestTrade && (
+                      <span
+                        className={
+                          dayPnl < 0
+                            ? "calendar-day-pnl loss"
+                            : dayPnl > 0
+                              ? "calendar-day-pnl profit"
+                              : "calendar-day-pnl"
+                        }
+                      >
+                        {dayPnl > 0 ? "+" : dayPnl < 0 ? "-" : ""}$
+                        {Math.abs(dayPnl).toLocaleString("en-US", {
+                          maximumFractionDigits: 2,
+                        })}
+                      </span>
+                    )}
+
+                    {dayTrades.length === 0 && isSameMonth(day, currentMonth) && (
+                      <small
+                        className="add-day-entry"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          openTradeForm(day)
+                        }}
+                      >
+                        <Plus size={13} />
+                      </small>
+                    )}
+                  </button>
+                )
+              })}
+            </div>
+          </article>
+
+          <aside className="dashboard-review">
+            <div className="dashboard-card-heading">
+              <div>
+                <span>SELECTED DAY</span>
+                <h2>{format(selectedDate, "MMMM d, yyyy")}</h2>
+              </div>
+
+              <BookOpen size={20} />
+            </div>
+
+            {selectedTrades.length === 0 ? (
+              <div className="empty-day-review">
+                <CalendarDays size={28} />
+                <h3>No trades recorded</h3>
+                <p>Add a trade or journal entry for this date.</p>
+
+                <button onClick={() => openTradeForm(selectedDate)}>
+                  <Plus size={16} />
+                  Add trade
+                </button>
+              </div>
+            ) : (
+              <div className="selected-trade-list">
+                {selectedTrades.map((trade) => (
+                  <article key={trade.id}>
+                    <div>
+                      <strong>{trade.instrument || "Trade"}</strong>
+                      <span>
+                        {trade.direction || "No direction"} ·{" "}
+                        {trade.contracts || 1} contract
+                      </span>
+                    </div>
+
+                    <b
+                      className={
+                        Number(trade.pnl) >= 0 ? "profit" : "loss"
+                      }
+                    >
+                      {Number(trade.pnl) >= 0 ? "+" : "-"}$
+                      {Math.abs(Number(trade.pnl)).toLocaleString()}
+                    </b>
+
+                    {trade.emotion && (
+                      <small>{trade.emotion}</small>
+                    )}
+
+                    {trade.journal && <p>{trade.journal}</p>}
+
+                    {trade.screenshot_path &&
+                      screenshotUrls[trade.screenshot_path] && (
+                        <button
+                          type="button"
+                          className="trade-screenshot-button"
+                          onClick={() =>
+                            setPreviewScreenshot({
+                              url: screenshotUrls[trade.screenshot_path!],
+                              instrument: trade.instrument || "Trade",
+                            })
+                          }
+                        >
+                          <img
+                            src={screenshotUrls[trade.screenshot_path]}
+                            alt={`${trade.instrument || "Trade"} chart screenshot`}
+                          />
+                          <span>Click to enlarge</span>
+                        </button>
+                      )}
+
+                    <div className="trade-card-actions">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          openTradeForm(
+                            new Date(`${trade.trade_date}T12:00:00`),
+                            trade
+                          )
+                        }
+                      >
+                        <Pencil size={14} />
+                        Edit
+                      </button>
+
+                      <button
+                        type="button"
+                        className="delete-trade-button"
+                        disabled={deletingTradeId === trade.id}
+                        onClick={() => deleteTrade(trade)}
+                      >
+                        <Trash2 size={14} />
+                        {deletingTradeId === trade.id
+                          ? "Deleting..."
+                          : "Delete"}
+                      </button>
+                    </div>
+                  </article>
+                ))}
+
+                <button
+                  className="add-another-trade"
+                  onClick={() => openTradeForm(selectedDate)}
+                >
+                  <Plus size={15} />
+                  Add another trade
+                </button>
+              </div>
+            )}
+          </aside>
+        </section>
+          </>
+        ) : activeView === "trades" ? (
+          <section className="trades-view">
+            <header className="trades-page-header">
+              <div>
+                <span className="trades-page-eyebrow">TRADE LEDGER</span>
+                <h1>Every trade, clearly accounted for.</h1>
+                <p>
+                  Search, compare, and manage the trades behind your
+                  performance.
+                </p>
+              </div>
+
+              <button
+                className="log-trade-button"
+                onClick={() => openTradeForm(new Date())}
+              >
+                <Plus size={18} /> Log a trade
+              </button>
+            </header>
+
+            <section className="trades-summary-grid">
+              <article>
+                <span>Total trades</span>
+                <strong>{ledgerStats.total}</strong>
+                <small>All recorded entries</small>
+              </article>
+              <article>
+                <span>Average winner</span>
+                <strong className="profit">
+                  +${Math.round(ledgerStats.averageWinner).toLocaleString()}
+                </strong>
+                <small>Across profitable trades</small>
+              </article>
+              <article>
+                <span>Average loser</span>
+                <strong className="loss">
+                  -${Math.abs(
+                    Math.round(ledgerStats.averageLoser)
+                  ).toLocaleString()}
+                </strong>
+                <small>Across losing trades</small>
+              </article>
+              <article>
+                <span>Best instrument</span>
+                <strong>{ledgerStats.bestInstrument?.[0] || "—"}</strong>
+                <small>
+                  {ledgerStats.bestInstrument
+                    ? `${ledgerStats.bestInstrument[1] >= 0 ? "+" : "-"}$${Math.abs(
+                        ledgerStats.bestInstrument[1]
+                      ).toLocaleString()} net P&L`
+                    : "No trades yet"}
+                </small>
+              </article>
+            </section>
+
+            <div className="trades-toolbar">
+              <label className="trades-search">
+                <Search size={17} />
+                <input
+                  type="search"
+                  placeholder="Search symbol, setup, or notes..."
+                  value={tradeSearch}
+                  onChange={(event) => setTradeSearch(event.target.value)}
+                />
+              </label>
+
+              <label>
+                <select
+                  value={tradeResult}
+                  onChange={(event) => setTradeResult(event.target.value)}
+                >
+                  <option value="all">All results</option>
+                  <option value="wins">Wins</option>
+                  <option value="losses">Losses</option>
+                  <option value="breakeven">Breakeven</option>
+                </select>
+              </label>
+
+              <label>
+                <select
+                  value={tradeDirection}
+                  onChange={(event) => setTradeDirection(event.target.value)}
+                >
+                  <option value="all">All sides</option>
+                  <option value="long">Long</option>
+                  <option value="short">Short</option>
+                </select>
+              </label>
+
+              <label>
+                <select
+                  value={tradePlan}
+                  onChange={(event) => setTradePlan(event.target.value)}
+                >
+                  <option value="all">Any execution</option>
+                  <option value="followed">Plan followed</option>
+                  <option value="missed">Plan missed</option>
+                </select>
+              </label>
+            </div>
+
+            <div className="trades-ledger-layout">
+              <div className="trades-table-card">
+                <div className="trades-table-scroll">
+                  <div className="trades-table-header">
+                    <span>Date</span>
+                    <span>Instrument</span>
+                    <span>Side</span>
+                    <span>Contracts</span>
+                    <span>Setup</span>
+                    <span>Plan</span>
+                    <span>P&amp;L</span>
+                  </div>
+
+                  {filteredLedgerTrades.length === 0 ? (
+                    <div className="trades-empty-state">
+                      <BarChart3 size={28} />
+                      <h2>No trades found</h2>
+                      <p>Change your filters or log a new trade.</p>
+                    </div>
+                  ) : (
+                    filteredLedgerTrades.map((trade) => {
+                      const pnl = Number(trade.pnl)
+
+                      return (
+                        <button
+                          type="button"
+                          className={`trades-table-row ${
+                            selectedLedgerTrade?.id === trade.id
+                              ? "trades-table-row-active"
+                              : ""
+                          }`}
+                          key={trade.id}
+                          onClick={() => setSelectedLedgerTrade(trade)}
+                        >
+                          <span>
+                            {format(
+                              new Date(`${trade.trade_date}T12:00:00`),
+                              "MMM d, yyyy"
+                            )}
+                          </span>
+                          <strong>{trade.instrument || "—"}</strong>
+                          <span className="trade-side-pill">
+                            {trade.direction || "—"}
+                          </span>
+                          <span>{trade.contracts || 1}</span>
+                          <span className="trade-setup-cell">
+                            {trade.setup || "—"}
+                          </span>
+                          <span
+                            className={`trade-plan-status ${
+                              trade.followed_plan ? "followed" : "missed"
+                            }`}
+                          >
+                            {trade.followed_plan ? "Followed" : "Missed"}
+                          </span>
+                          <b className={pnl < 0 ? "loss" : "profit"}>
+                            {pnl > 0 ? "+" : pnl < 0 ? "-" : ""}$
+                            {Math.abs(pnl).toLocaleString()}
+                          </b>
+                        </button>
+                      )
+                    })
+                  )}
+                </div>
+              </div>
+
+              <aside className="trade-ledger-detail">
+                {selectedLedgerTrade ? (
+                  <>
+                    <div className="trade-ledger-detail-heading">
+                      <div>
+                        <span>TRADE DETAILS</span>
+                        <h2>{selectedLedgerTrade.instrument || "Trade"}</h2>
+                        <p>
+                          {format(
+                            new Date(
+                              `${selectedLedgerTrade.trade_date}T12:00:00`
+                            ),
+                            "MMMM d, yyyy"
+                          )}
+                        </p>
+                      </div>
+                      <b
+                        className={
+                          Number(selectedLedgerTrade.pnl) < 0
+                            ? "loss"
+                            : "profit"
+                        }
+                      >
+                        {Number(selectedLedgerTrade.pnl) > 0
+                          ? "+"
+                          : Number(selectedLedgerTrade.pnl) < 0
+                            ? "-"
+                            : ""}
+                        ${Math.abs(Number(selectedLedgerTrade.pnl)).toLocaleString()}
+                      </b>
+                    </div>
+
+                    <dl className="trade-ledger-facts">
+                      <div>
+                        <dt>Side</dt>
+                        <dd>{selectedLedgerTrade.direction || "—"}</dd>
+                      </div>
+                      <div>
+                        <dt>Contracts</dt>
+                        <dd>{selectedLedgerTrade.contracts || 1}</dd>
+                      </div>
+                      <div>
+                        <dt>Emotion</dt>
+                        <dd>{selectedLedgerTrade.emotion || "—"}</dd>
+                      </div>
+                      <div>
+                        <dt>Execution</dt>
+                        <dd>{selectedLedgerTrade.execution_rating || "—"}</dd>
+                      </div>
+                    </dl>
+
+                    {selectedLedgerTrade.screenshot_path &&
+                      screenshotUrls[selectedLedgerTrade.screenshot_path] && (
+                        <button
+                          type="button"
+                          className="trade-ledger-image"
+                          onClick={() =>
+                            setPreviewScreenshot({
+                              url: screenshotUrls[
+                                selectedLedgerTrade.screenshot_path!
+                              ],
+                              instrument:
+                                selectedLedgerTrade.instrument || "Trade",
+                            })
+                          }
+                        >
+                          <img
+                            src={
+                              screenshotUrls[
+                                selectedLedgerTrade.screenshot_path
+                              ]
+                            }
+                            alt="Trade chart"
+                          />
+                          <span>View chart</span>
+                        </button>
+                      )}
+
+                    <div className="trade-ledger-note">
+                      <span>SETUP</span>
+                      <p>{selectedLedgerTrade.setup || "No setup recorded."}</p>
+                    </div>
+
+                    <div className="trade-ledger-actions">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          openTradeForm(
+                            new Date(
+                              `${selectedLedgerTrade.trade_date}T12:00:00`
+                            ),
+                            selectedLedgerTrade
+                          )
+                        }
+                      >
+                        <Pencil size={15} /> Edit
+                      </button>
+                      <button
+                        type="button"
+                        className="delete-trade-button"
+                        disabled={deletingTradeId === selectedLedgerTrade.id}
+                        onClick={() => deleteTrade(selectedLedgerTrade)}
+                      >
+                        <Trash2 size={15} />
+                        {deletingTradeId === selectedLedgerTrade.id
+                          ? "Deleting..."
+                          : "Delete"}
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <div className="trades-empty-state">
+                    <BarChart3 size={28} />
+                    <h2>Select a trade</h2>
+                    <p>Choose a row to inspect its details.</p>
+                  </div>
+                )}
+              </aside>
+            </div>
+          </section>
+        ) : activeView === "journal" ? (
+          <section className="journal-view">
+            <header className="journal-page-header">
+              <div>
+                <span className="journal-page-eyebrow">TRADE JOURNAL</span>
+                <h1>Review the decisions behind every trade.</h1>
+                <p>
+                  Find patterns in your execution, emotions, and setups—not
+                  only your P&amp;L.
+                </p>
+              </div>
+
+              <button
+                className="log-trade-button"
+                onClick={() => openTradeForm(new Date())}
+              >
+                <Plus size={18} />
+                New entry
+              </button>
+            </header>
+
+            <div className="journal-toolbar">
+              <label className="journal-search">
+                <Search size={18} />
+                <input
+                  type="search"
+                  placeholder="Search symbol, setup, emotion, or notes..."
+                  value={journalSearch}
+                  onChange={(event) => setJournalSearch(event.target.value)}
+                />
+              </label>
+
+              <label className="journal-result-filter">
+                <SlidersHorizontal size={17} />
+                <select
+                  value={journalResult}
+                  onChange={(event) => setJournalResult(event.target.value)}
+                >
+                  <option value="all">All results</option>
+                  <option value="wins">Wins</option>
+                  <option value="losses">Losses</option>
+                  <option value="breakeven">Breakeven</option>
+                </select>
+              </label>
+            </div>
+
+            <div className="journal-workspace">
+              <div className="journal-entry-list">
+                <div className="journal-list-heading">
+                  <span>RECENT ENTRIES</span>
+                  <small>{filteredJournalTrades.length} entries</small>
+                </div>
+
+                {filteredJournalTrades.length === 0 ? (
+                  <div className="journal-empty-state">
+                    <BookOpen size={28} />
+                    <h2>No journal entries found</h2>
+                    <p>Try another filter or add your first entry.</p>
+                  </div>
+                ) : (
+                  filteredJournalTrades.map((trade) => {
+                    const pnl = Number(trade.pnl)
+
+                    return (
+                      <button
+                        type="button"
+                        key={trade.id}
+                        className={`journal-entry-row ${
+                          selectedJournalTrade?.id === trade.id
+                            ? "journal-entry-row-active"
+                            : ""
+                        }`}
+                        onClick={() => setSelectedJournalTrade(trade)}
+                      >
+                        <span
+                          className={`journal-result-dot ${
+                            pnl < 0 ? "loss" : pnl > 0 ? "profit" : ""
+                          }`}
+                        />
+
+                        <span className="journal-entry-main">
+                          <strong>{trade.instrument || "Trade"}</strong>
+                          <small>
+                            {format(
+                              new Date(`${trade.trade_date}T12:00:00`),
+                              "MMM d, yyyy"
+                            )}
+                            {trade.setup ? ` · ${trade.setup}` : ""}
+                          </small>
+                        </span>
+
+                        {trade.emotion && (
+                          <span className="journal-emotion-pill">
+                            {trade.emotion}
+                          </span>
+                        )}
+
+                        <b className={pnl < 0 ? "loss" : "profit"}>
+                          {pnl > 0 ? "+" : pnl < 0 ? "-" : ""}$
+                          {Math.abs(pnl).toLocaleString()}
+                        </b>
+                      </button>
+                    )
+                  })
+                )}
+              </div>
+
+              <aside className="journal-detail-panel">
+                {selectedJournalTrade ? (
+                  <>
+                    <div className="journal-detail-heading">
+                      <div>
+                        <span>SELECTED ENTRY</span>
+                        <h2>
+                          {format(
+                            new Date(
+                              `${selectedJournalTrade.trade_date}T12:00:00`
+                            ),
+                            "MMMM d, yyyy"
+                          )}
+                        </h2>
+                      </div>
+
+                      <b
+                        className={
+                          Number(selectedJournalTrade.pnl) < 0
+                            ? "loss"
+                            : "profit"
+                        }
+                      >
+                        {Number(selectedJournalTrade.pnl) > 0
+                          ? "+"
+                          : Number(selectedJournalTrade.pnl) < 0
+                            ? "-"
+                            : ""}
+                        ${Math.abs(Number(selectedJournalTrade.pnl)).toLocaleString()}
+                      </b>
+                    </div>
+
+                    <div className="journal-detail-meta">
+                      <span>{selectedJournalTrade.instrument || "Trade"}</span>
+                      <span>{selectedJournalTrade.direction || "No direction"}</span>
+                      <span>
+                        {selectedJournalTrade.contracts || 1} contract
+                        {selectedJournalTrade.contracts === 1 ? "" : "s"}
+                      </span>
+                    </div>
+
+                    {selectedJournalTrade.screenshot_path &&
+                      screenshotUrls[selectedJournalTrade.screenshot_path] && (
+                        <button
+                          type="button"
+                          className="journal-detail-image"
+                          onClick={() =>
+                            setPreviewScreenshot({
+                              url: screenshotUrls[
+                                selectedJournalTrade.screenshot_path!
+                              ],
+                              instrument:
+                                selectedJournalTrade.instrument || "Trade",
+                            })
+                          }
+                        >
+                          <img
+                            src={
+                              screenshotUrls[
+                                selectedJournalTrade.screenshot_path
+                              ]
+                            }
+                            alt="Trade chart"
+                          />
+                          <span>Open screenshot</span>
+                        </button>
+                      )}
+
+                    <div className="journal-detail-section">
+                      <span>SETUP</span>
+                      <p>{selectedJournalTrade.setup || "No setup recorded."}</p>
+                    </div>
+
+                    <div className="journal-detail-section">
+                      <span>REVIEW</span>
+                      <p>
+                        {selectedJournalTrade.journal ||
+                          "No journal notes were added to this trade."}
+                      </p>
+                    </div>
+
+                    <div className="journal-detail-tags">
+                      {selectedJournalTrade.emotion && (
+                        <span>{selectedJournalTrade.emotion}</span>
+                      )}
+                      {selectedJournalTrade.execution_rating && (
+                        <span>{selectedJournalTrade.execution_rating}</span>
+                      )}
+                      <span>
+                        {selectedJournalTrade.followed_plan
+                          ? "Plan followed"
+                          : "Plan not followed"}
+                      </span>
+                    </div>
+
+                    <div className="journal-detail-actions">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          openTradeForm(
+                            new Date(
+                              `${selectedJournalTrade.trade_date}T12:00:00`
+                            ),
+                            selectedJournalTrade
+                          )
+                        }
+                      >
+                        <Pencil size={15} /> Edit entry
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <div className="journal-empty-state">
+                    <BookOpen size={28} />
+                    <h2>Select an entry</h2>
+                    <p>Choose a trade to open its complete review.</p>
+                  </div>
+                )}
+              </aside>
+            </div>
+          </section>
+        ) : activeView === "discover" ? (
+          <section className="discover-view">
+            <header className="discover-page-header">
+              <div>
+                <span className="discover-page-eyebrow">TRADER DISCOVERY</span>
+                <h1>Find traders worth learning from.</h1>
+                <p>
+                  Explore public journals, compare performance, and follow
+                  traders whose process matches yours.
+                </p>
+              </div>
+            </header>
+
+            <label className="discover-search">
+              <Search size={18} />
+              <input
+                type="search"
+                placeholder="Search by trader name, username, or bio..."
+                value={discoverSearch}
+                onChange={(event) => setDiscoverSearch(event.target.value)}
+              />
+            </label>
+
+            {discoverError && (
+              <div className="discover-error">{discoverError}</div>
+            )}
+
+            {discoverLoading ? (
+              <div className="discover-loading">
+                <LoaderCircle className="auth-spinner" size={24} />
+                Loading traders...
+              </div>
+            ) : discoverCards.length === 0 ? (
+              <div className="discover-empty-state">
+                <Users size={31} />
+                <h2>No public traders yet</h2>
+                <p>
+                  Profiles will appear here when other TradeMirror users join
+                  and share public trades.
+                </p>
+              </div>
+            ) : (
+              <div className="discover-layout">
+                <div className="discover-card-grid">
+                  {discoverCards.map(
+                    ({ profile, publicTrades, totalPnl, winRate }) => (
+                      <article
+                        className={`discover-trader-card ${
+                          selectedDiscoverProfile?.id === profile.id
+                            ? "discover-trader-card-active"
+                            : ""
+                        }`}
+                        key={profile.id}
+                        onClick={() => setSelectedDiscoverProfile(profile)}
+                      >
+                        <div className="discover-card-top">
+                          <div className="discover-avatar">
+                            {profile.avatar_url ? (
+                              <img src={profile.avatar_url} alt="" />
+                            ) : (
+                              (profile.full_name || profile.username || "T")
+                                .charAt(0)
+                                .toUpperCase()
+                            )}
+                          </div>
+
+                          <button
+                            type="button"
+                            className={
+                              followingIds.has(profile.id)
+                                ? "discover-following-button"
+                                : "discover-follow-button"
+                            }
+                            disabled={followLoadingId === profile.id}
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              toggleFollow(profile.id)
+                            }}
+                          >
+                            {followingIds.has(profile.id) ? (
+                              <UserCheck size={15} />
+                            ) : (
+                              <UserPlus size={15} />
+                            )}
+                            {followLoadingId === profile.id
+                              ? "Saving..."
+                              : followingIds.has(profile.id)
+                                ? "Following"
+                                : "Follow"}
+                          </button>
+                        </div>
+
+                        <h2>{profile.full_name || "TradeMirror Trader"}</h2>
+                        <span className="discover-username">
+                          @{profile.username || "trader"}
+                        </span>
+                        <p>{profile.bio || "Building consistency one trade at a time."}</p>
+
+                        <div className="discover-card-stats">
+                          <div>
+                            <span>Public P&amp;L</span>
+                            <strong className={totalPnl < 0 ? "loss" : "profit"}>
+                              {totalPnl > 0 ? "+" : totalPnl < 0 ? "-" : ""}$
+                              {Math.abs(totalPnl).toLocaleString()}
+                            </strong>
+                          </div>
+                          <div>
+                            <span>Win rate</span>
+                            <strong>{winRate}%</strong>
+                          </div>
+                          <div>
+                            <span>Trades</span>
+                            <strong>{publicTrades.length}</strong>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          className="discover-view-profile"
+                          onClick={() => setSelectedDiscoverProfile(profile)}
+                        >
+                          <Eye size={15} /> View public journal
+                        </button>
+                      </article>
+                    )
+                  )}
+                </div>
+
+                <aside className="discover-profile-preview">
+                  {selectedDiscoverProfile && (() => {
+                    const profile = selectedDiscoverProfile
+                    const trades = discoverTrades.filter(
+                      (trade) => trade.user_id === profile.id
+                    )
+                    const total = trades.reduce(
+                      (sum, trade) => sum + Number(trade.pnl),
+                      0
+                    )
+
+                    return (
+                      <>
+                        <div className="discover-preview-heading">
+                          <div className="discover-avatar large">
+                            {profile.avatar_url ? (
+                              <img src={profile.avatar_url} alt="" />
+                            ) : (
+                              (profile.full_name || profile.username || "T")
+                                .charAt(0)
+                                .toUpperCase()
+                            )}
+                          </div>
+                          <div>
+                            <span>PUBLIC PROFILE</span>
+                            <h2>{profile.full_name || "TradeMirror Trader"}</h2>
+                            <p>@{profile.username || "trader"}</p>
+                          </div>
+                        </div>
+
+                        <p className="discover-preview-bio">
+                          {profile.bio || "No bio added yet."}
+                        </p>
+
+                        <div className="discover-preview-total">
+                          <span>Public P&amp;L</span>
+                          <strong className={total < 0 ? "loss" : "profit"}>
+                            {total > 0 ? "+" : total < 0 ? "-" : ""}$
+                            {Math.abs(total).toLocaleString()}
+                          </strong>
+                        </div>
+
+                        <div className="discover-recent-heading">
+                          <span>RECENT PUBLIC TRADES</span>
+                          <small>{trades.length} shared</small>
+                        </div>
+
+                        <div className="discover-recent-trades">
+                          {trades.length === 0 ? (
+                            <p>No public trades shared yet.</p>
+                          ) : (
+                            trades.slice(0, 5).map((trade) => {
+                              const pnl = Number(trade.pnl)
+                              return (
+                                <article key={trade.id}>
+                                  <div>
+                                    <strong>{trade.instrument || "Trade"}</strong>
+                                    <span>
+                                      {format(
+                                        new Date(`${trade.trade_date}T12:00:00`),
+                                        "MMM d"
+                                      )}
+                                      {trade.setup ? ` · ${trade.setup}` : ""}
+                                    </span>
+                                  </div>
+                                  <b className={pnl < 0 ? "loss" : "profit"}>
+                                    {pnl > 0 ? "+" : pnl < 0 ? "-" : ""}$
+                                    {Math.abs(pnl).toLocaleString()}
+                                  </b>
+                                </article>
+                              )
+                            })
+                          )}
+                        </div>
+                      </>
+                    )
+                  })()}
+                </aside>
+              </div>
+            )}
+          </section>
+        ) : (
+          <section className="settings-view">
+            <header className="settings-page-header">
+              <div>
+                <span className="settings-page-eyebrow">ACCOUNT SETTINGS</span>
+                <h1>Make TradeMirror yours.</h1>
+                <p>
+                  Manage your public trader profile, account information, and
+                  security.
+                </p>
+              </div>
+            </header>
+
+            {settingsError && (
+              <div className="settings-alert error">{settingsError}</div>
+            )}
+            {settingsMessage && (
+              <div className="settings-alert success">{settingsMessage}</div>
+            )}
+
+            <div className="settings-layout">
+              <nav className="settings-section-nav">
+                <button className="active" type="button">
+                  <UserRound size={17} /> Profile
+                </button>
+                <button type="button">
+                  <ShieldCheck size={17} /> Privacy
+                </button>
+                <button type="button">
+                  <LockKeyhole size={17} /> Security
+                </button>
+              </nav>
+
+              <div className="settings-content-column">
+                <form className="settings-card" onSubmit={saveSettings}>
+                  <div className="settings-card-heading">
+                    <div>
+                      <span>PUBLIC PROFILE</span>
+                      <h2>Trader information</h2>
+                      <p>This information appears when traders find you.</p>
+                    </div>
+                    <label className="settings-avatar-uploader">
+                      <span className="settings-avatar-preview">
+                        {settingsAvatarPreview ? (
+                          <img
+                            src={settingsAvatarPreview}
+                            alt="Profile preview"
+                          />
+                        ) : (
+                          settingsName.charAt(0).toUpperCase() || "T"
+                        )}
+                        <i>Change</i>
+                      </span>
+                      <input
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp"
+                        onChange={(event) => {
+                          const file = event.target.files?.[0] || null
+
+                          if (!file) return
+
+                          if (file.size > 5 * 1024 * 1024) {
+                            setSettingsError(
+                              "Your profile photo must be smaller than 5 MB."
+                            )
+                            event.target.value = ""
+                            return
+                          }
+
+                          setSettingsError("")
+                          setSettingsAvatarFile(file)
+                          setSettingsAvatarPreview(URL.createObjectURL(file))
+                        }}
+                      />
+                    </label>
+                  </div>
+
+                  {settingsLoading ? (
+                    <div className="settings-loading">
+                      <LoaderCircle className="auth-spinner" size={21} />
+                      Loading settings...
+                    </div>
+                  ) : (
+                    <div className="settings-form-grid">
+                      <label>
+                        <span>Full name</span>
+                        <input
+                          type="text"
+                          value={settingsName}
+                          onChange={(event) =>
+                            setSettingsName(event.target.value)
+                          }
+                          required
+                        />
+                      </label>
+
+                      <label>
+                        <span>Username</span>
+                        <div className="settings-username-field">
+                          <i>@</i>
+                          <input
+                            type="text"
+                            value={settingsUsername}
+                            placeholder="jaketrades"
+                            maxLength={30}
+                            onChange={(event) =>
+                              setSettingsUsername(event.target.value)
+                            }
+                          />
+                        </div>
+                        <small>Letters, numbers, and underscores only.</small>
+                      </label>
+
+                      <label className="settings-full-field">
+                        <span>Trader bio</span>
+                        <textarea
+                          value={settingsBio}
+                          placeholder="NQ futures trader focused on consistency and execution."
+                          maxLength={180}
+                          onChange={(event) =>
+                            setSettingsBio(event.target.value)
+                          }
+                        />
+                        <small>{settingsBio.length}/180 characters</small>
+                      </label>
+                    </div>
+                  )}
+
+                  <div className="settings-card-actions">
+                    <button
+                      className="settings-save-button"
+                      type="submit"
+                      disabled={settingsSaving || settingsLoading}
+                    >
+                      {settingsSaving ? (
+                        <LoaderCircle className="auth-spinner" size={17} />
+                      ) : (
+                        "Save changes"
+                      )}
+                    </button>
+                  </div>
+                </form>
+
+                <section className="settings-card settings-privacy-card">
+                  <div className="settings-card-heading">
+                    <div>
+                      <span>PRIVACY</span>
+                      <h2>Sharing controls</h2>
+                      <p>
+                        Visibility is selected separately whenever you log or
+                        edit a trade.
+                      </p>
+                    </div>
+                    <ShieldCheck size={23} />
+                  </div>
+
+                  <div className="settings-privacy-note">
+                    <strong>Your journal stays private by default.</strong>
+                    <p>
+                      Discover only displays entries you explicitly mark as
+                      Public. Private entries and follower-only entries are not
+                      included in public performance totals.
+                    </p>
+                  </div>
+                </section>
+
+                <section className="settings-card settings-danger-card">
+                  <div className="settings-card-heading">
+                    <div>
+                      <span>DANGER ZONE</span>
+                      <h2>Delete account</h2>
+                      <p>
+                        Permanently delete your profile, trades, journal notes,
+                        screenshots, and login.
+                      </p>
+                    </div>
+                    <Trash2 size={23} />
+                  </div>
+
+                  <button
+                    type="button"
+                    className="settings-delete-button"
+                    onClick={() => {
+                      setDeleteConfirmation("")
+                      setDeleteDialogOpen(true)
+                    }}
+                  >
+                    Delete my account
+                  </button>
+                </section>
+              </div>
+            </div>
+          </section>
+        )}
+      </section>
+
+      {deleteDialogOpen && (
+        <div
+          className="delete-account-backdrop"
+          onMouseDown={() => !deletingAccount && setDeleteDialogOpen(false)}
+        >
+          <section
+            className="delete-account-dialog"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="delete-account-icon">
+              <Trash2 size={22} />
+            </div>
+            <h2>Permanently delete your account?</h2>
+            <p>
+              This cannot be undone. Every trade, journal entry, uploaded
+              screenshot, follow, and profile detail will be removed.
+            </p>
+
+            <label>
+              <span>Type DELETE to confirm</span>
+              <input
+                type="text"
+                value={deleteConfirmation}
+                onChange={(event) =>
+                  setDeleteConfirmation(event.target.value)
+                }
+                autoComplete="off"
+                placeholder="DELETE"
+              />
+            </label>
+
+            <div className="delete-account-actions">
+              <button
+                type="button"
+                disabled={deletingAccount}
+                onClick={() => setDeleteDialogOpen(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="confirm-account-delete"
+                disabled={deleteConfirmation !== "DELETE" || deletingAccount}
+                onClick={deleteAccount}
+              >
+                {deletingAccount ? (
+                  <>
+                    <LoaderCircle className="auth-spinner" size={17} />
+                    Deleting...
+                  </>
+                ) : (
+                  "Delete permanently"
+                )}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {formOpen && (
+        <div
+          className="trade-modal-backdrop"
+          onMouseDown={() => {
+            setFormOpen(false)
+            setEditingTrade(null)
+          }}
+        >
+          <section
+            className="trade-modal"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <header className="trade-modal-header">
+              <div>
+                <span>
+                  {editingTrade ? "EDIT JOURNAL ENTRY" : "NEW JOURNAL ENTRY"}
+                </span>
+                <h2>{format(selectedDate, "MMMM d, yyyy")}</h2>
+              </div>
+
+              <button
+                aria-label="Close journal form"
+                onClick={() => {
+                  setFormOpen(false)
+                  setEditingTrade(null)
+                }}
+              >
+                <X size={20} />
+              </button>
+            </header>
+
+            <form className="trade-form" onSubmit={saveTrade}>
+              <div className="trade-form-grid">
+                <label>
+                  <span>P&amp;L</span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    placeholder="420.00 or -180.00"
+                    value={form.pnl}
+                    onChange={(event) =>
+                      setForm({ ...form, pnl: event.target.value })
+                    }
+                    required
+                  />
+                </label>
+
+                <label>
+                  <span>Instrument</span>
+                  <input
+                    type="text"
+                    placeholder="NQ"
+                    value={form.instrument}
+                    onChange={(event) =>
+                      setForm({
+                        ...form,
+                        instrument: event.target.value,
+                      })
+                    }
+                    required
+                  />
+                </label>
+
+                <label>
+                  <span>Direction</span>
+                  <select
+                    value={form.direction}
+                    onChange={(event) =>
+                      setForm({
+                        ...form,
+                        direction: event.target.value,
+                      })
+                    }
+                  >
+                    <option value="long">Long</option>
+                    <option value="short">Short</option>
+                  </select>
+                </label>
+
+                <label>
+                  <span>Contracts</span>
+                  <input
+                    type="number"
+                    min="1"
+                    value={form.contracts}
+                    onChange={(event) =>
+                      setForm({
+                        ...form,
+                        contracts: event.target.value,
+                      })
+                    }
+                    required
+                  />
+                </label>
+
+                <label>
+                  <span>Emotion</span>
+                  <select
+                    value={form.emotion}
+                    onChange={(event) =>
+                      setForm({
+                        ...form,
+                        emotion: event.target.value,
+                      })
+                    }
+                  >
+                    <option>Focused</option>
+                    <option>Calm</option>
+                    <option>Confident</option>
+                    <option>Hesitant</option>
+                    <option>Nervous</option>
+                    <option>Scared</option>
+                    <option>Frustrated</option>
+                    <option>Impulsive</option>
+                    <option>Greedy</option>
+                  </select>
+                </label>
+
+                <label>
+                  <span>Followed your plan?</span>
+                  <select
+                    value={form.followedPlan}
+                    onChange={(event) =>
+                      setForm({
+                        ...form,
+                        followedPlan: event.target.value,
+                      })
+                    }
+                  >
+                    <option value="yes">Yes</option>
+                    <option value="no">No</option>
+                  </select>
+                </label>
+
+                <label className="full-form-field">
+                  <span>Setup</span>
+                  <input
+                    type="text"
+                    placeholder="Liquidity sweep + IFVG"
+                    value={form.setup}
+                    onChange={(event) =>
+                      setForm({
+                        ...form,
+                        setup: event.target.value,
+                      })
+                    }
+                  />
+                </label>
+
+                <label className="full-form-field">
+                  <span>Journal</span>
+                  <textarea
+                    placeholder="What happened? What went well? What will you improve?"
+                    value={form.journal}
+                    onChange={(event) =>
+                      setForm({
+                        ...form,
+                        journal: event.target.value,
+                      })
+                    }
+                  />
+                </label>
+
+                <label>
+                  <span>Execution rating</span>
+                  <select
+                    value={form.executionRating}
+                    onChange={(event) =>
+                      setForm({
+                        ...form,
+                        executionRating: event.target.value,
+                      })
+                    }
+                  >
+                    <option>Great execution</option>
+                    <option>Good execution</option>
+                    <option>Iffy execution</option>
+                    <option>Poor execution</option>
+                  </select>
+                </label>
+
+                <label>
+                  <span>Visibility</span>
+                  <select
+                    value={form.visibility}
+                    onChange={(event) =>
+                      setForm({
+                        ...form,
+                        visibility: event.target.value,
+                      })
+                    }
+                  >
+                    <option value="private">Private</option>
+                    <option value="followers">Followers</option>
+                    <option value="public">Public</option>
+                  </select>
+                </label>
+
+                <label className="full-form-field">
+                  <span>Trade screenshot</span>
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                    onChange={(event) =>
+                      setScreenshot(event.target.files?.[0] || null)
+                    }
+                  />
+                </label>
+              </div>
+
+              {formError && (
+                <div className="trade-form-error">{formError}</div>
+              )}
+
+              <div className="trade-form-actions">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFormOpen(false)
+                    setEditingTrade(null)
+                  }}
+                >
+                  Cancel
+                </button>
+
+                <button type="submit" disabled={saving}>
+                  {saving ? (
+                    <LoaderCircle className="auth-spinner" size={18} />
+                  ) : (
+                    <>
+                      {editingTrade ? "Save changes" : "Save journal entry"}
+                      <ArrowRight size={17} />
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
+      )}
+
+      {previewScreenshot && (
+        <div
+          className="screenshot-preview-backdrop"
+          onMouseDown={() => setPreviewScreenshot(null)}
+        >
+          <div
+            className="screenshot-preview-modal"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <header>
+              <div>
+                <span>TRADE SCREENSHOT</span>
+                <h2>{previewScreenshot.instrument}</h2>
+              </div>
+
+              <button
+                type="button"
+                aria-label="Close screenshot"
+                onClick={() => setPreviewScreenshot(null)}
+              >
+                <X size={21} />
+              </button>
+            </header>
+
+            <img
+              src={previewScreenshot.url}
+              alt={`${previewScreenshot.instrument} enlarged chart`}
+            />
+          </div>
+        </div>
+      )}
+    </main>
+  )
+}
