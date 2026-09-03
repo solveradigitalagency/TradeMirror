@@ -12396,3 +12396,46 @@ video {
     transform: none !important;
   }
 }
+/* Full-width mobile landing page */
+@media (max-width: 760px) {
+  html,
+  body {
+    width: 100%;
+    max-width: 100%;
+    margin: 0;
+    overflow-x: hidden;
+  }
+
+  .landing-page {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+
+  .landing-page .navbar,
+  .landing-page .hero-premium,
+  .landing-page .feature-section,
+  .landing-page .cta-section {
+    width: 100% !important;
+    max-width: none !important;
+    margin-right: 0 !important;
+    margin-left: 0 !important;
+    padding-right: 16px !important;
+    padding-left: 16px !important;
+  }
+
+  .landing-page .hero-premium .hero-copy,
+  .landing-page .hero-premium .product-scene,
+  .landing-page .hero-premium .floating-panel,
+  .landing-page .hero-premium .hero-actions,
+  .landing-page .hero-premium .metric-row {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  .landing-page .hero-premium .button,
+  .landing-page .hero-premium .metric-card {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+}
