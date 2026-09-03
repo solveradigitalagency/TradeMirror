@@ -43,6 +43,9 @@ import {
   ShieldCheck,
   UserRound,
   LockKeyhole,
+  Mail,
+  KeyRound,
+  LogOut,
 } from "lucide-react"
 
 import SignOutButton from "@/components/sign-out-button"
@@ -156,6 +159,13 @@ export default function DashboardClient({
   const [settingsSaving, setSettingsSaving] = useState(false)
   const [settingsMessage, setSettingsMessage] = useState("")
   const [settingsError, setSettingsError] = useState("")
+  const [settingsTab, setSettingsTab] = useState<
+    "profile" | "privacy" | "security"
+  >("profile")
+  const [settingsEmail, setSettingsEmail] = useState("")
+  const [newPassword, setNewPassword] = useState("")
+  const [confirmPassword, setConfirmPassword] = useState("")
+  const [securitySaving, setSecuritySaving] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [deleteConfirmation, setDeleteConfirmation] = useState("")
   const [deletingAccount, setDeletingAccount] = useState(false)
@@ -434,24 +444,30 @@ export default function DashboardClient({
       setSettingsLoading(true)
       setSettingsError("")
 
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("full_name, username, bio, avatar_url, show_public_pnl")
-        .eq("id", userId)
-        .maybeSingle()
+      const [profileResult, userResult] = await Promise.all([
+        supabase
+          .from("profiles")
+          .select("full_name, username, bio, avatar_url, show_public_pnl")
+          .eq("id", userId)
+          .maybeSingle(),
+        supabase.auth.getUser(),
+      ])
 
       if (cancelled) return
 
-      if (error) {
-        setSettingsError(error.message)
-      } else if (data) {
-        setSettingsName(data.full_name || fullName)
-        setSettingsUsername(data.username || "")
-        setSettingsBio(data.bio || "")
-        setProfileAvatarUrl(data.avatar_url || "")
-        setSettingsAvatarPreview(data.avatar_url || "")
-        setSettingsShowPublicPnl(data.show_public_pnl !== false)
+      if (profileResult.error) {
+        setSettingsError(profileResult.error.message)
+      } else if (profileResult.data) {
+        const profile = profileResult.data
+        setSettingsName(profile.full_name || fullName)
+        setSettingsUsername(profile.username || "")
+        setSettingsBio(profile.bio || "")
+        setProfileAvatarUrl(profile.avatar_url || "")
+        setSettingsAvatarPreview(profile.avatar_url || "")
+        setSettingsShowPublicPnl(profile.show_public_pnl !== false)
       }
+
+      setSettingsEmail(userResult.data.user?.email || "")
 
       setSettingsLoading(false)
     }
@@ -1062,6 +1078,86 @@ export default function DashboardClient({
     }
 
     setSettingsSaving(false)
+  }
+
+  async function savePrivacy() {
+    setSettingsSaving(true)
+    setSettingsMessage("")
+    setSettingsError("")
+
+    const { error } = await supabase
+      .from("profiles")
+      .update({
+        show_public_pnl: settingsShowPublicPnl,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", userId)
+
+    if (error) setSettingsError(error.message)
+    else setSettingsMessage("Your privacy settings have been saved.")
+
+    setSettingsSaving(false)
+  }
+
+  async function updateAccountEmail(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setSecuritySaving(true)
+    setSettingsMessage("")
+    setSettingsError("")
+
+    const { error } = await supabase.auth.updateUser({
+      email: settingsEmail.trim(),
+    })
+
+    if (error) setSettingsError(error.message)
+    else {
+      setSettingsMessage(
+        "Check your new email address to confirm the change."
+      )
+    }
+
+    setSecuritySaving(false)
+  }
+
+  async function updateAccountPassword(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setSettingsMessage("")
+    setSettingsError("")
+
+    if (newPassword.length < 8) {
+      setSettingsError("Your new password must contain at least 8 characters.")
+      return
+    }
+
+    if (newPassword !== confirmPassword) {
+      setSettingsError("The passwords do not match.")
+      return
+    }
+
+    setSecuritySaving(true)
+    const { error } = await supabase.auth.updateUser({ password: newPassword })
+
+    if (error) setSettingsError(error.message)
+    else {
+      setNewPassword("")
+      setConfirmPassword("")
+      setSettingsMessage("Your password has been updated.")
+    }
+
+    setSecuritySaving(false)
+  }
+
+  async function signOutOtherSessions() {
+    setSecuritySaving(true)
+    setSettingsMessage("")
+    setSettingsError("")
+
+    const { error } = await supabase.auth.signOut({ scope: "others" })
+
+    if (error) setSettingsError(error.message)
+    else setSettingsMessage("Your other active sessions have been signed out.")
+
+    setSecuritySaving(false)
   }
 
   async function deleteAccount() {
@@ -2447,7 +2543,6 @@ export default function DashboardClient({
                         key={profile.id}
                         onClick={() => setSelectedDiscoverProfile(profile)}
                       >
-                 
                         <div className="discover-card-top">
                           <div className="discover-avatar">
                             {profile.avatar_url ? (
@@ -2532,10 +2627,9 @@ export default function DashboardClient({
             <header className="settings-page-header">
               <div>
                 <span className="settings-page-eyebrow">ACCOUNT SETTINGS</span>
-                <h1>Make TradeMirror yours.</h1>
+                <h1>Settings</h1>
                 <p>
-                  Manage your public trader profile, account information, and
-                  security.
+                  Manage your public profile, privacy, and account security.
                 </p>
               </div>
             </header>
@@ -2548,20 +2642,48 @@ export default function DashboardClient({
             )}
 
             <div className="settings-layout">
-              <nav className="settings-section-nav">
-                <button className="active" type="button">
-                  <UserRound size={17} /> Profile
+              <nav className="settings-section-nav" aria-label="Settings sections">
+                <button
+                  className={settingsTab === "profile" ? "active" : ""}
+                  type="button"
+                  onClick={() => {
+                    setSettingsTab("profile")
+                    setSettingsError("")
+                    setSettingsMessage("")
+                  }}
+                >
+                  <UserRound size={18} />
+                  <span><strong>Profile</strong><small>Public trader details</small></span>
                 </button>
-                <button type="button">
-                  <ShieldCheck size={17} /> Privacy
+                <button
+                  className={settingsTab === "privacy" ? "active" : ""}
+                  type="button"
+                  onClick={() => {
+                    setSettingsTab("privacy")
+                    setSettingsError("")
+                    setSettingsMessage("")
+                  }}
+                >
+                  <ShieldCheck size={18} />
+                  <span><strong>Privacy</strong><small>Sharing controls</small></span>
                 </button>
-                <button type="button">
-                  <LockKeyhole size={17} /> Security
+                <button
+                  className={settingsTab === "security" ? "active" : ""}
+                  type="button"
+                  onClick={() => {
+                    setSettingsTab("security")
+                    setSettingsError("")
+                    setSettingsMessage("")
+                  }}
+                >
+                  <LockKeyhole size={18} />
+                  <span><strong>Security</strong><small>Login and account</small></span>
                 </button>
               </nav>
 
               <div className="settings-content-column">
-                <form className="settings-card" onSubmit={saveSettings}>
+                {settingsTab === "profile" && (
+                <form className="settings-card settings-panel-card" onSubmit={saveSettings}>
                   <div className="settings-card-heading">
                     <div>
                       <span>PUBLIC PROFILE</span>
@@ -2669,8 +2791,10 @@ export default function DashboardClient({
                     </button>
                   </div>
                 </form>
+                )}
 
-                <section className="settings-card settings-privacy-card">
+                {settingsTab === "privacy" && (
+                <section className="settings-card settings-panel-card settings-privacy-card">
                   <div className="settings-card-heading">
                     <div>
                       <span>PRIVACY</span>
@@ -2717,12 +2841,7 @@ export default function DashboardClient({
                       className="settings-save-button"
                       type="button"
                       disabled={settingsSaving || settingsLoading}
-                      onClick={() => {
-                        const form = document.querySelector<HTMLFormElement>(
-                          ".settings-content-column form.settings-card"
-                        )
-                        form?.requestSubmit()
-                      }}
+                      onClick={savePrivacy}
                     >
                       {settingsSaving ? (
                         <LoaderCircle className="auth-spinner" size={17} />
@@ -2732,8 +2851,120 @@ export default function DashboardClient({
                     </button>
                   </div>
                 </section>
+                )}
 
-                <section className="settings-card settings-danger-card">
+                {settingsTab === "security" && (
+                <div className="settings-security-stack">
+                <form
+                  className="settings-card settings-panel-card"
+                  onSubmit={updateAccountEmail}
+                >
+                  <div className="settings-card-heading">
+                    <div>
+                      <span>EMAIL ADDRESS</span>
+                      <h2>Account email</h2>
+                      <p>Change the email address used to sign in.</p>
+                    </div>
+                    <Mail size={23} />
+                  </div>
+                  <div className="settings-security-form">
+                    <label>
+                      <span>Email address</span>
+                      <input
+                        type="email"
+                        value={settingsEmail}
+                        onChange={(event) => setSettingsEmail(event.target.value)}
+                        autoComplete="email"
+                        required
+                      />
+                    </label>
+                  </div>
+                  <div className="settings-card-actions">
+                    <button
+                      className="settings-save-button"
+                      type="submit"
+                      disabled={securitySaving || settingsLoading}
+                    >
+                      {securitySaving ? (
+                        <LoaderCircle className="auth-spinner" size={17} />
+                      ) : (
+                        "Update email"
+                      )}
+                    </button>
+                  </div>
+                </form>
+
+                <form
+                  className="settings-card settings-panel-card"
+                  onSubmit={updateAccountPassword}
+                >
+                  <div className="settings-card-heading">
+                    <div>
+                      <span>PASSWORD</span>
+                      <h2>Change password</h2>
+                      <p>Use at least eight characters for your new password.</p>
+                    </div>
+                    <KeyRound size={23} />
+                  </div>
+                  <div className="settings-security-form two-column">
+                    <label>
+                      <span>New password</span>
+                      <input
+                        type="password"
+                        value={newPassword}
+                        onChange={(event) => setNewPassword(event.target.value)}
+                        autoComplete="new-password"
+                        minLength={8}
+                        required
+                      />
+                    </label>
+                    <label>
+                      <span>Confirm password</span>
+                      <input
+                        type="password"
+                        value={confirmPassword}
+                        onChange={(event) => setConfirmPassword(event.target.value)}
+                        autoComplete="new-password"
+                        minLength={8}
+                        required
+                      />
+                    </label>
+                  </div>
+                  <div className="settings-card-actions">
+                    <button
+                      className="settings-save-button"
+                      type="submit"
+                      disabled={securitySaving}
+                    >
+                      {securitySaving ? (
+                        <LoaderCircle className="auth-spinner" size={17} />
+                      ) : (
+                        "Update password"
+                      )}
+                    </button>
+                  </div>
+                </form>
+
+                <section className="settings-card settings-panel-card settings-sessions-card">
+                  <div className="settings-card-heading">
+                    <div>
+                      <span>ACTIVE SESSIONS</span>
+                      <h2>Other devices</h2>
+                      <p>Sign out TradeMirror sessions on your other devices.</p>
+                    </div>
+                    <LogOut size={23} />
+                  </div>
+                  <button
+                    type="button"
+                    className="settings-secondary-button"
+                    disabled={securitySaving}
+                    onClick={signOutOtherSessions}
+                  >
+                    Sign out other sessions
+                  </button>
+                </section>
+
+                <section className="settings-card settings-panel-card settings-danger-card">
                   <div className="settings-card-heading">
                     <div>
                       <span>DANGER ZONE</span>
@@ -2757,6 +2988,8 @@ export default function DashboardClient({
                     Delete my account
                   </button>
                 </section>
+                </div>
+                )}
               </div>
             </div>
           </section>

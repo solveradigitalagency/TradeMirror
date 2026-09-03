@@ -14,6 +14,225 @@
   --blue: #7c9fd5;
 }
 
+/* Professional tabbed settings workspace */
+.settings-page-header {
+  margin-bottom: 22px;
+}
+
+.settings-page-header h1 {
+  margin: 7px 0 6px;
+  font-size: clamp(2rem, 3vw, 2.8rem);
+}
+
+.settings-layout {
+  align-items: start;
+}
+
+.settings-section-nav {
+  padding: 8px;
+  border: 1px solid #263748;
+  border-radius: 17px;
+  background: linear-gradient(145deg, rgba(18, 31, 44, 0.96), rgba(8, 16, 24, 0.98));
+  box-shadow: 0 20px 55px rgba(0, 0, 0, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.035);
+}
+
+.settings-section-nav button {
+  min-height: 64px;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 13px;
+}
+
+.settings-section-nav button > span {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+  text-align: left;
+}
+
+.settings-section-nav button strong {
+  color: inherit;
+  font-size: 0.82rem;
+}
+
+.settings-section-nav button small {
+  color: #66788b;
+  font-size: 0.64rem;
+  font-weight: 500;
+}
+
+.settings-section-nav button.active small {
+  color: #8da2b8;
+}
+
+.settings-content-column,
+.settings-security-stack {
+  min-width: 0;
+}
+
+.settings-security-stack {
+  display: grid;
+  gap: 16px;
+}
+
+.settings-panel-card {
+  overflow: hidden;
+  border-color: #2a3b4d;
+  background:
+    radial-gradient(circle at 100% 0%, rgba(96, 146, 207, 0.06), transparent 30%),
+    linear-gradient(145deg, rgba(18, 32, 45, 0.97), rgba(8, 17, 25, 0.99));
+  box-shadow: 0 24px 65px rgba(0, 0, 0, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.035);
+}
+
+.settings-security-form {
+  padding: 24px 26px;
+}
+
+.settings-security-form.two-column {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.settings-security-form label {
+  display: grid;
+  gap: 9px;
+  color: #aebdcd;
+  font-size: 0.76rem;
+  font-weight: 650;
+}
+
+.settings-security-form input {
+  width: 100%;
+  min-height: 49px;
+  padding: 0 14px;
+  color: #e5edf5;
+  border: 1px solid #30465b;
+  border-radius: 11px;
+  outline: 0;
+  background: rgba(5, 13, 21, 0.64);
+  font: inherit;
+}
+
+.settings-security-form input:focus {
+  border-color: #5b82ad;
+  box-shadow: 0 0 0 3px rgba(91, 130, 173, 0.1);
+}
+
+.settings-secondary-button {
+  margin: 0 26px 24px;
+  padding: 11px 14px;
+  color: #b8c9da;
+  border: 1px solid #344b61;
+  border-radius: 10px;
+  background: rgba(27, 46, 64, 0.55);
+  cursor: pointer;
+}
+
+.settings-secondary-button:hover {
+  color: #eef5fb;
+  border-color: #527394;
+}
+
+.settings-secondary-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.settings-sessions-card .settings-card-heading {
+  border-bottom: 0;
+}
+
+@media (min-width: 1051px) {
+  .app-dashboard.dashboard-view-settings {
+    height: 100dvh;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .dashboard-view-settings .dashboard-sidebar,
+  .dashboard-view-settings .dashboard-content {
+    height: 100dvh;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .dashboard-view-settings .settings-view {
+    height: 100%;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .dashboard-view-settings .settings-page-header,
+  .dashboard-view-settings .settings-alert {
+    flex-shrink: 0;
+  }
+
+  .dashboard-view-settings .settings-layout {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .dashboard-view-settings .settings-section-nav {
+    position: static;
+    max-height: max-content;
+  }
+
+  .dashboard-view-settings .settings-content-column {
+    height: 100%;
+    min-height: 0;
+    padding-right: 8px;
+    padding-bottom: 28px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    scrollbar-color: #33485d transparent;
+  }
+
+  .dashboard-view-settings .settings-content-column::-webkit-scrollbar {
+    width: 7px;
+  }
+
+  .dashboard-view-settings .settings-content-column::-webkit-scrollbar-thumb {
+    border-radius: 999px;
+    background: #33485d;
+  }
+
+  .dashboard-view-settings .settings-content-column::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
+
+@media (max-width: 760px) {
+  .settings-section-nav {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .settings-section-nav button {
+    min-height: 58px;
+    justify-content: center;
+    padding: 9px;
+  }
+
+  .settings-section-nav button > span {
+    display: none;
+  }
+
+  .settings-security-form,
+  .settings-security-form.two-column {
+    grid-template-columns: 1fr;
+    padding: 19px;
+  }
+
+  .settings-secondary-button {
+    margin: 0 19px 20px;
+  }
+}
+
 /* Full public trader profile */
 .public-profile-page {
   min-height: 0;
@@ -11913,4 +12132,206 @@ video {
     min-height: 0;
     overflow-y: auto;
   }
+}
+
+/* Final settings appearance overrides */
+.dashboard-view-settings .settings-layout {
+  align-items: start;
+}
+
+.dashboard-view-settings .settings-section-nav {
+  padding: 8px;
+  border: 1px solid #263748;
+  border-radius: 17px;
+  background: linear-gradient(145deg, rgba(18, 31, 44, 0.96), rgba(8, 16, 24, 0.98));
+  box-shadow: 0 20px 55px rgba(0, 0, 0, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.035);
+}
+
+.dashboard-view-settings .settings-section-nav button {
+  min-height: 64px;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 13px;
+}
+
+.dashboard-view-settings .settings-section-nav button > span {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+  text-align: left;
+}
+
+.dashboard-view-settings .settings-section-nav button strong {
+  color: inherit;
+  font-size: 0.82rem;
+}
+
+.dashboard-view-settings .settings-section-nav button small {
+  color: #66788b;
+  font-size: 0.64rem;
+  font-weight: 500;
+}
+
+.dashboard-view-settings .settings-section-nav button.active small {
+  color: #8da2b8;
+}
+
+.dashboard-view-settings .settings-panel-card {
+  overflow: hidden;
+  border-color: #2a3b4d;
+  background:
+    radial-gradient(circle at 100% 0%, rgba(96, 146, 207, 0.06), transparent 30%),
+    linear-gradient(145deg, rgba(18, 32, 45, 0.97), rgba(8, 17, 25, 0.99));
+  box-shadow: 0 24px 65px rgba(0, 0, 0, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.035);
+}
+
+@media (max-width: 760px) {
+  .dashboard-view-settings .settings-section-nav {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .dashboard-view-settings .settings-section-nav button {
+    min-height: 58px;
+    justify-content: center;
+    padding: 9px;
+  }
+
+  .dashboard-view-settings .settings-section-nav button > span {
+    display: none;
+  }
+}
+/* Settings navigation hover animation */
+.dashboard-view-settings .settings-section-nav button {
+  border: 1px solid transparent;
+  transition:
+    color 180ms ease,
+    background 180ms ease,
+    border-color 180ms ease,
+    transform 180ms ease,
+    box-shadow 180ms ease;
+}
+
+.dashboard-view-settings .settings-section-nav button:not(.active):hover {
+  color: #dce8f5;
+  border-color: rgba(126, 165, 210, 0.16);
+  background: rgba(104, 148, 201, 0.08);
+  transform: translateX(3px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.025);
+}
+
+.dashboard-view-settings
+  .settings-section-nav
+  button:not(.active):hover
+  svg {
+  color: #8fb8e8;
+  transform: scale(1.08);
+}
+
+.dashboard-view-settings
+  .settings-section-nav
+  button:not(.active):hover
+  small {
+  color: #899caf;
+}
+
+.dashboard-view-settings .settings-section-nav button svg {
+  transition:
+    color 180ms ease,
+    transform 180ms ease;
+}
+
+.dashboard-view-settings .settings-section-nav button:active {
+  transform: translateX(3px) scale(0.985);
+}
+/* Sign-out hover animation */
+.dashboard-sidebar .temporary-signout {
+  transition:
+    color 180ms ease,
+    background 180ms ease,
+    border-color 180ms ease,
+    transform 180ms ease,
+    box-shadow 180ms ease;
+}
+
+.dashboard-sidebar .temporary-signout svg {
+  transition:
+    color 180ms ease,
+    transform 180ms ease;
+}
+
+.dashboard-sidebar .temporary-signout:hover {
+  color: #ff8585;
+  border-color: rgba(255, 100, 100, 0.38);
+  background: rgba(255, 82, 82, 0.09);
+  transform: translateX(3px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.025),
+    0 10px 24px rgba(80, 10, 10, 0.12);
+}
+
+.dashboard-sidebar .temporary-signout:hover svg {
+  color: #ff7272;
+  transform: translateX(2px) scale(1.08);
+}
+
+.dashboard-sidebar .temporary-signout:active {
+  transform: translateX(3px) scale(0.985);
+}
+/* Main sidebar navigation hover animation */
+.dashboard-navigation button {
+  transition:
+    color 180ms ease,
+    background 180ms ease,
+    border-color 180ms ease,
+    transform 180ms ease,
+    box-shadow 180ms ease;
+}
+
+.dashboard-navigation button svg {
+  transition:
+    color 180ms ease,
+    transform 180ms ease;
+}
+
+.dashboard-navigation button:not(.dashboard-nav-active):hover {
+  color: #dce8f5;
+  border-color: rgba(126, 165, 210, 0.16);
+  background: rgba(104, 148, 201, 0.08);
+  transform: translateX(3px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.025),
+    0 10px 24px rgba(0, 0, 0, 0.1);
+}
+
+.dashboard-navigation button:not(.dashboard-nav-active):hover svg {
+  color: #8fb8e8;
+  transform: scale(1.08);
+}
+
+.dashboard-navigation button:active {
+  transform: translateX(3px) scale(0.985);
+}
+/* Increase only the selected-day card height */
+@media (min-width: 1051px) {
+  .dashboard-view-overview .dashboard-review {
+    height: calc(100dvh - 270px);
+  }
+}
+/* Match calendar height with selected-day card */
+@media (min-width: 1051px) {
+  .dashboard-view-overview .dashboard-calendar {
+    height: calc(100dvh - 270px);
+    display: flex;
+    flex-direction: column;
+  }
+
+  .dashboard-view-overview .dashboard-calendar-grid {
+    flex: 1;
+    grid-auto-rows: 1fr;
+  }
+}
+/* Show pointer cursor on settings tabs */
+.dashboard-view-settings .settings-section-nav button {
+  cursor: pointer;
 }
