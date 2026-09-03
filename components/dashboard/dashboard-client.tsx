@@ -80,6 +80,16 @@ type DiscoverProfile = {
   avatar_url: string | null
 }
 
+type DashboardNotification = {
+  id: string
+  recipient_id: string
+  actor_id: string
+  type: "new_follower"
+  read_at: string | null
+  created_at: string
+  actor: DiscoverProfile | null
+}
+
 const navigation = [
   { icon: LayoutDashboard, label: "Overview", view: "overview" },
   { icon: BarChart3, label: "Trades", view: "trades" },
@@ -161,6 +171,106 @@ export default function DashboardClient({
     url: string
     instrument: string
   } | null>(null)
+  const [globalSearchOpen, setGlobalSearchOpen] = useState(false)
+  const [globalSearch, setGlobalSearch] = useState("")
+  const [globalProfiles, setGlobalProfiles] = useState<DiscoverProfile[]>([])
+  const [notificationsOpen, setNotificationsOpen] = useState(false)
+  const [notifications, setNotifications] = useState<DashboardNotification[]>([])
+  const [notificationsLoading, setNotificationsLoading] = useState(true)
+
+  useEffect(() => {
+    if (!globalSearchOpen || globalProfiles.length > 0) return
+
+    let cancelled = false
+
+    async function loadGlobalProfiles() {
+      const { data } = await supabase
+        .from("profiles")
+        .select("id, full_name, username, bio, avatar_url")
+        .neq("id", userId)
+        .order("full_name", { ascending: true })
+
+      if (!cancelled) {
+        setGlobalProfiles((data || []) as DiscoverProfile[])
+      }
+    }
+
+    loadGlobalProfiles()
+
+    return () => {
+      cancelled = true
+    }
+  }, [globalProfiles.length, globalSearchOpen, supabase, userId])
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadNotifications() {
+      const { data, error } = await supabase
+        .from("notifications")
+        .select("id, recipient_id, actor_id, type, read_at, created_at")
+        .eq("recipient_id", userId)
+        .order("created_at", { ascending: false })
+        .limit(30)
+
+      if (cancelled) return
+
+      if (error) {
+        setNotificationsLoading(false)
+        return
+      }
+
+      const rows = data || []
+      const actorIds = Array.from(
+        new Set(rows.map((notification) => notification.actor_id))
+      )
+
+      let actors: DiscoverProfile[] = []
+
+      if (actorIds.length > 0) {
+        const { data: actorData } = await supabase
+          .from("profiles")
+          .select("id, full_name, username, bio, avatar_url")
+          .in("id", actorIds)
+
+        actors = (actorData || []) as DiscoverProfile[]
+      }
+
+      if (!cancelled) {
+        setNotifications(
+          rows.map((notification) => ({
+            ...notification,
+            type: "new_follower" as const,
+            actor:
+              actors.find((actor) => actor.id === notification.actor_id) ||
+              null,
+          }))
+        )
+        setNotificationsLoading(false)
+      }
+    }
+
+    loadNotifications()
+
+    const channel = supabase
+      .channel(`dashboard-notifications-${userId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "notifications",
+          filter: `recipient_id=eq.${userId}`,
+        },
+        () => loadNotifications()
+      )
+      .subscribe()
+
+    return () => {
+      cancelled = true
+      supabase.removeChannel(channel)
+    }
+  }, [supabase, userId])
 
   useEffect(() => {
     let cancelled = false
@@ -759,6 +869,103 @@ export default function DashboardClient({
       .sort((a, b) => b.publicTrades.length - a.publicTrades.length)
   }, [discoverProfiles, discoverSearch, discoverTrades])
 
+  const globalSearchResults = useMemo(() => {
+    const search = globalSearch.trim().toLowerCase()
+
+    if (!search) {
+      return {
+        trades: [] as Trade[],
+        profiles: [] as DiscoverProfile[],
+      }
+    }
+
+    const trades = initialTrades
+      .filter((trade) =>
+        [
+          trade.instrument,
+          trade.setup,
+          trade.journal,
+          trade.emotion,
+          trade.direction,
+          trade.trade_date,
+        ].some((value) => String(value || "").toLowerCase().includes(search))
+      )
+      .slice(0, 6)
+
+    const profiles = globalProfiles
+      .filter((profile) =>
+        [profile.full_name, profile.username, profile.bio].some((value) =>
+          String(value || "").toLowerCase().includes(search)
+        )
+      )
+      .slice(0, 5)
+
+    return { trades, profiles }
+  }, [globalProfiles, globalSearch, initialTrades])
+
+  const unreadNotificationCount = notifications.filter(
+    (notification) => !notification.read_at
+  ).length
+
+  function closeHeaderPanels() {
+    setGlobalSearchOpen(false)
+    setNotificationsOpen(false)
+  }
+
+  function openTradeSearchResult(trade: Trade) {
+    setSelectedLedgerTrade(trade)
+    setTradeSearch("")
+    setActiveView("trades")
+    closeHeaderPanels()
+  }
+
+  function openProfileSearchResult(profile: DiscoverProfile) {
+    setSelectedDiscoverProfile(profile)
+    setActiveView("discover")
+    closeHeaderPanels()
+  }
+
+  async function markNotificationRead(notification: DashboardNotification) {
+    if (!notification.read_at) {
+      const readAt = new Date().toISOString()
+
+      setNotifications((current) =>
+        current.map((item) =>
+          item.id === notification.id ? { ...item, read_at: readAt } : item
+        )
+      )
+
+      await supabase
+        .from("notifications")
+        .update({ read_at: readAt })
+        .eq("id", notification.id)
+        .eq("recipient_id", userId)
+    }
+
+    if (notification.actor) {
+      openProfileSearchResult(notification.actor)
+    } else {
+      setNotificationsOpen(false)
+    }
+  }
+
+  async function markAllNotificationsRead() {
+    const readAt = new Date().toISOString()
+
+    setNotifications((current) =>
+      current.map((notification) => ({
+        ...notification,
+        read_at: notification.read_at || readAt,
+      }))
+    )
+
+    await supabase
+      .from("notifications")
+      .update({ read_at: readAt })
+      .eq("recipient_id", userId)
+      .is("read_at", null)
+  }
+
   async function toggleFollow(profileId: string) {
     setFollowLoadingId(profileId)
     const isFollowing = followingIds.has(profileId)
@@ -969,15 +1176,37 @@ export default function DashboardClient({
           </div>
 
           <div className="dashboard-header-actions">
-            <button className="dashboard-icon-button" aria-label="Search">
+            <button
+              className={`dashboard-icon-button ${
+                globalSearchOpen ? "dashboard-icon-button-active" : ""
+              }`}
+              aria-label="Search TradeMirror"
+              aria-expanded={globalSearchOpen}
+              onClick={() => {
+                setGlobalSearchOpen((open) => !open)
+                setNotificationsOpen(false)
+              }}
+            >
               <Search size={19} />
             </button>
 
             <button
-              className="dashboard-icon-button"
+              className={`dashboard-icon-button notification-button ${
+                notificationsOpen ? "dashboard-icon-button-active" : ""
+              }`}
               aria-label="Notifications"
+              aria-expanded={notificationsOpen}
+              onClick={() => {
+                setNotificationsOpen((open) => !open)
+                setGlobalSearchOpen(false)
+              }}
             >
               <Bell size={19} />
+              {unreadNotificationCount > 0 && (
+                <span className="notification-badge">
+                  {unreadNotificationCount > 9 ? "9+" : unreadNotificationCount}
+                </span>
+              )}
             </button>
 
             <button
@@ -987,6 +1216,198 @@ export default function DashboardClient({
               <Plus size={18} />
               Log a trade
             </button>
+
+            {globalSearchOpen && (
+              <div className="header-popover global-search-popover">
+                <div className="header-popover-heading">
+                  <div>
+                    <span>SEARCH</span>
+                    <strong>Find anything</strong>
+                  </div>
+                  <button
+                    type="button"
+                    aria-label="Close search"
+                    onClick={() => setGlobalSearchOpen(false)}
+                  >
+                    <X size={17} />
+                  </button>
+                </div>
+
+                <label className="global-search-input">
+                  <Search size={17} />
+                  <input
+                    type="search"
+                    autoFocus
+                    placeholder="Search trades, setups, notes, or traders..."
+                    value={globalSearch}
+                    onChange={(event) => setGlobalSearch(event.target.value)}
+                  />
+                </label>
+
+                <div className="header-popover-content">
+                  {!globalSearch.trim() ? (
+                    <div className="header-popover-empty">
+                      Start typing to search TradeMirror.
+                    </div>
+                  ) : globalSearchResults.trades.length === 0 &&
+                    globalSearchResults.profiles.length === 0 ? (
+                    <div className="header-popover-empty">
+                      No matching trades or traders found.
+                    </div>
+                  ) : (
+                    <>
+                      {globalSearchResults.trades.length > 0 && (
+                        <section className="search-result-section">
+                          <span>YOUR TRADES</span>
+                          {globalSearchResults.trades.map((trade) => (
+                            <button
+                              type="button"
+                              className="global-search-result"
+                              key={trade.id}
+                              onClick={() => openTradeSearchResult(trade)}
+                            >
+                              <div>
+                                <strong>{trade.instrument || "Trade"}</strong>
+                                <small>
+                                  {format(
+                                    new Date(`${trade.trade_date}T12:00:00`),
+                                    "MMM d, yyyy"
+                                  )}
+                                  {trade.setup ? ` · ${trade.setup}` : ""}
+                                </small>
+                              </div>
+                              <b
+                                className={
+                                  Number(trade.pnl) < 0 ? "loss" : "profit"
+                                }
+                              >
+                                {Number(trade.pnl) > 0
+                                  ? "+"
+                                  : Number(trade.pnl) < 0
+                                    ? "-"
+                                    : ""}
+                                ${Math.abs(Number(trade.pnl)).toLocaleString()}
+                              </b>
+                            </button>
+                          ))}
+                        </section>
+                      )}
+
+                      {globalSearchResults.profiles.length > 0 && (
+                        <section className="search-result-section">
+                          <span>TRADERS</span>
+                          {globalSearchResults.profiles.map((profile) => (
+                            <button
+                              type="button"
+                              className="global-search-result trader-result"
+                              key={profile.id}
+                              onClick={() => openProfileSearchResult(profile)}
+                            >
+                              <span className="header-result-avatar">
+                                {profile.avatar_url ? (
+                                  <img
+                                    src={profile.avatar_url}
+                                    alt=""
+                                  />
+                                ) : (
+                                  (profile.full_name || profile.username || "T")
+                                    .charAt(0)
+                                    .toUpperCase()
+                                )}
+                              </span>
+                              <div>
+                                <strong>{profile.full_name || "Trader"}</strong>
+                                <small>
+                                  {profile.username
+                                    ? `@${profile.username}`
+                                    : "Public trader"}
+                                </small>
+                              </div>
+                            </button>
+                          ))}
+                        </section>
+                      )}
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {notificationsOpen && (
+              <div className="header-popover notifications-popover">
+                <div className="header-popover-heading">
+                  <div>
+                    <span>ACTIVITY</span>
+                    <strong>Notifications</strong>
+                  </div>
+                  {unreadNotificationCount > 0 && (
+                    <button
+                      type="button"
+                      className="mark-all-read"
+                      onClick={markAllNotificationsRead}
+                    >
+                      Mark all read
+                    </button>
+                  )}
+                </div>
+
+                <div className="header-popover-content">
+                  {notificationsLoading ? (
+                    <div className="header-popover-empty">
+                      <LoaderCircle className="auth-spinner" size={18} />
+                      Loading notifications...
+                    </div>
+                  ) : notifications.length === 0 ? (
+                    <div className="header-popover-empty">
+                      <Bell size={22} />
+                      You have no notifications yet.
+                    </div>
+                  ) : (
+                    notifications.map((notification) => (
+                      <button
+                        type="button"
+                        className={`notification-item ${
+                          notification.read_at ? "" : "notification-unread"
+                        }`}
+                        key={notification.id}
+                        onClick={() => markNotificationRead(notification)}
+                      >
+                        <span className="header-result-avatar">
+                          {notification.actor?.avatar_url ? (
+                            <img
+                              src={notification.actor.avatar_url}
+                              alt=""
+                            />
+                          ) : (
+                            (
+                              notification.actor?.full_name ||
+                              notification.actor?.username ||
+                              "T"
+                            )
+                              .charAt(0)
+                              .toUpperCase()
+                          )}
+                        </span>
+                        <span>
+                          <strong>
+                            {notification.actor?.full_name ||
+                              notification.actor?.username ||
+                              "A trader"}
+                          </strong>{" "}
+                          followed you.
+                          <small>
+                            {format(new Date(notification.created_at), "MMM d, h:mm a")}
+                          </small>
+                        </span>
+                        {!notification.read_at && (
+                          <i aria-label="Unread notification" />
+                        )}
+                      </button>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </header>
 
