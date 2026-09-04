@@ -46,6 +46,7 @@ import {
   Mail,
   KeyRound,
   LogOut,
+  Download,
 } from "lucide-react"
 
 import SignOutButton from "@/components/sign-out-button"
@@ -173,6 +174,8 @@ export default function DashboardClient({
   const [journalResult, setJournalResult] = useState("all")
   const [selectedJournalTrade, setSelectedJournalTrade] =
     useState<Trade | null>(initialTrades[0] || null)
+  const [journalDownloadLoading, setJournalDownloadLoading] = useState(false)
+  const [journalDownloadError, setJournalDownloadError] = useState("")
 
   const [editingTrade, setEditingTrade] = useState<Trade | null>(null)
   const [deletingTradeId, setDeletingTradeId] = useState<string | null>(null)
@@ -503,7 +506,7 @@ export default function DashboardClient({
   }, [supabase, userId])
   // === End addition for typed greeting effect ===
 
-  const calendarDays = useMemo(() => {
+  const calendarWeeks = useMemo(() => {
     const firstCalendarDay = startOfWeek(startOfMonth(currentMonth), {
       weekStartsOn: 1,
     })
@@ -512,11 +515,52 @@ export default function DashboardClient({
       weekStartsOn: 1,
     })
 
-    return eachDayOfInterval({
+    const allCalendarDays = eachDayOfInterval({
       start: firstCalendarDay,
       end: lastCalendarDay,
     })
-  }, [currentMonth])
+
+    return Array.from(
+      { length: Math.ceil(allCalendarDays.length / 7) },
+      (_, weekIndex) => {
+        const weekdays = allCalendarDays
+          .slice(weekIndex * 7, weekIndex * 7 + 7)
+          .slice(0, 5)
+
+        const weekTrades = weekdays.flatMap((day) => {
+          const dateKey = format(day, "yyyy-MM-dd")
+          return initialTrades.filter(
+            (trade) => trade.trade_date === dateKey
+          )
+        })
+
+        const latestTradeByDate = new Map<string, Trade>()
+
+        weekTrades.forEach((trade) => {
+          const existingTrade = latestTradeByDate.get(trade.trade_date)
+
+          if (
+            !existingTrade ||
+            new Date(trade.created_at).getTime() >
+              new Date(existingTrade.created_at).getTime()
+          ) {
+            latestTradeByDate.set(trade.trade_date, trade)
+          }
+        })
+
+        const totalPnl = Array.from(latestTradeByDate.values()).reduce(
+          (total, trade) => total + Number(trade.pnl || 0),
+          0
+        )
+
+        return {
+          weekdays,
+          totalPnl,
+          hasTrades: latestTradeByDate.size > 0,
+        }
+      }
+    )
+  }, [currentMonth, initialTrades])
 
   const monthlyTrades = useMemo(() => {
     const monthKey = format(currentMonth, "yyyy-MM")
@@ -1185,6 +1229,196 @@ export default function DashboardClient({
     window.location.assign("/?account=deleted")
   }
 
+  async function downloadJournalImage(trade: Trade) {
+    setJournalDownloadLoading(true)
+    setJournalDownloadError("")
+
+    try {
+      const escapeXml = (value: string) =>
+        value
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/\"/g, "&quot;")
+          .replace(/'/g, "&apos;")
+
+      const wrapLines = (value: string, maximumLength = 48) => {
+        const words = value.trim().split(/\s+/).filter(Boolean)
+        const lines: string[] = []
+        let line = ""
+
+        words.forEach((word) => {
+          const nextLine = line ? `${line} ${word}` : word
+          if (nextLine.length > maximumLength && line) {
+            lines.push(line)
+            line = word
+          } else {
+            line = nextLine
+          }
+        })
+
+        if (line) lines.push(line)
+        return lines.length ? lines : ["No journal notes recorded."]
+      }
+
+      const blobToDataUrl = (blob: Blob) =>
+        new Promise<string>((resolve, reject) => {
+          const reader = new FileReader()
+          reader.onload = () => resolve(String(reader.result))
+          reader.onerror = () => reject(new Error("Could not read the screenshot."))
+          reader.readAsDataURL(blob)
+        })
+
+      const fetchAsDataUrl = async (url: string) => {
+        const response = await fetch(url)
+        if (!response.ok) return ""
+        return blobToDataUrl(await response.blob())
+      }
+
+      const screenshotUrl = trade.screenshot_path
+        ? screenshotUrls[trade.screenshot_path]
+        : ""
+      const [screenshotDataUrl, logoDataUrl, avatarDataUrl] = await Promise.all([
+        screenshotUrl ? fetchAsDataUrl(screenshotUrl) : Promise.resolve(""),
+        fetchAsDataUrl(`${window.location.origin}/trademirrorlogo.png`),
+        profileAvatarUrl
+          ? fetchAsDataUrl(profileAvatarUrl)
+          : Promise.resolve(""),
+      ])
+
+      const journalLines = wrapLines(
+        trade.journal || "No journal notes recorded."
+      )
+      const setupLines = wrapLines(trade.setup || "No setup recorded.")
+      const imageWidth = 1600
+      const panelTop = 157
+      const setupFirstLineY = 498
+      const setupBottomY =
+        setupFirstLineY + Math.max(0, setupLines.length - 1) * 37 + 48
+      const journalDividerY = Math.max(548, setupBottomY)
+      const journalLabelY = journalDividerY + 52
+      const journalFirstLineY = journalDividerY + 98
+      const journalBottomY =
+        journalFirstLineY + Math.max(0, journalLines.length - 1) * 37 + 48
+      const panelHeight = Math.max(680, journalBottomY - panelTop + 28)
+      const imageHeight = panelTop + panelHeight + 163
+      const footerY = imageHeight - 83
+      const screenshotHeight = panelHeight - 50
+      const pnl = Number(trade.pnl)
+      const pnlText = `${pnl > 0 ? "+" : pnl < 0 ? "-" : ""}$${Math.abs(
+        pnl
+      ).toLocaleString()}`
+      const pnlColor = pnl < 0 ? "#ff7777" : "#64dda4"
+      const position = `${trade.direction || "No direction"} · ${
+        trade.contracts || 1
+      } ${trade.contracts === 1 ? "contract" : "contracts"}`
+      const username =
+        settingsUsername.trim() ||
+        fullName.toLowerCase().replace(/[^a-z0-9_]+/g, "") ||
+        "trader"
+
+      const textLines = (
+        lines: string[],
+        x: number,
+        firstY: number,
+        color = "#c6d1dc"
+      ) =>
+        lines
+          .map(
+            (line, index) =>
+              `<text x="${x}" y="${firstY + index * 37}" fill="${color}" font-size="25" font-family="Arial, sans-serif">${escapeXml(line)}</text>`
+          )
+          .join("")
+
+      const logoMarkup = logoDataUrl
+        ? `<image href="${logoDataUrl}" x="58" y="42" width="330" height="82" preserveAspectRatio="xMinYMid meet"/>`
+        : `<text x="62" y="101" fill="#f4f7fb" font-size="48" font-weight="700" font-family="Arial, sans-serif">TradeMirror</text>`
+      const avatarMarkup = avatarDataUrl
+        ? `<image href="${avatarDataUrl}" x="62" y="${footerY - 33}" width="66" height="66" preserveAspectRatio="xMidYMid slice" clip-path="url(#avatarClip)"/>`
+        : `<circle cx="95" cy="${footerY}" r="33" fill="#1c3852"/><text x="95" y="${footerY + 11}" text-anchor="middle" fill="#b9d5f5" font-size="32" font-weight="700" font-family="Arial, sans-serif">${escapeXml(firstName.charAt(0).toUpperCase())}</text>`
+      const screenshotMarkup = screenshotDataUrl
+        ? `<image href="${screenshotDataUrl}" x="61" y="183" width="730" height="${screenshotHeight}" preserveAspectRatio="xMidYMid meet" clip-path="url(#shotClip)"/>`
+        : `<rect x="61" y="183" width="730" height="${screenshotHeight}" fill="#0a1621"/><text x="426" y="${183 + screenshotHeight / 2}" text-anchor="middle" fill="#71859a" font-size="25" font-family="Arial, sans-serif">No trade screenshot added</text>`
+
+      const svg = `
+        <svg xmlns="http://www.w3.org/2000/svg" width="${imageWidth}" height="${imageHeight}" viewBox="0 0 ${imageWidth} ${imageHeight}">
+          <defs>
+            <linearGradient id="background" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#06101a"/><stop offset="0.52" stop-color="#0b1c2e"/><stop offset="1" stop-color="#153f78"/></linearGradient>
+            <radialGradient id="glow"><stop stop-color="#326fc8" stop-opacity=".26"/><stop offset="1" stop-color="#07111b" stop-opacity="0"/></radialGradient>
+            <clipPath id="shotClip"><rect x="61" y="183" width="730" height="${screenshotHeight}" rx="22"/></clipPath>
+            <clipPath id="avatarClip"><circle cx="95" cy="${footerY}" r="33"/></clipPath>
+          </defs>
+          <rect width="1600" height="${imageHeight}" rx="38" fill="url(#background)"/>
+          <circle cx="1450" cy="50" r="600" fill="url(#glow)"/>
+          ${logoMarkup}
+          <text x="1538" y="74" text-anchor="end" fill="#f4f7fb" font-size="31" font-weight="700" font-family="Arial, sans-serif">${escapeXml(trade.instrument || "Trade")}</text>
+          <text x="1538" y="111" text-anchor="end" fill="#9cafc3" font-size="20" font-family="Arial, sans-serif">${escapeXml(format(new Date(`${trade.trade_date}T12:00:00`), "MMMM d, yyyy"))}</text>
+          <rect x="42" y="${panelTop}" width="770" height="${panelHeight}" rx="25" fill="#10233a" fill-opacity=".76" stroke="#6384aa" stroke-opacity=".52"/>
+          <text x="61" y="143" fill="#8ca5c1" font-size="17" font-weight="700" font-family="Arial, sans-serif">TRADE SCREENSHOT</text>
+          ${screenshotMarkup}
+          <rect x="838" y="${panelTop}" width="720" height="${panelHeight}" rx="25" fill="#10233a" fill-opacity=".76" stroke="#6384aa" stroke-opacity=".52"/>
+          <line x1="838" y1="276" x2="1558" y2="276" stroke="#6384aa" stroke-opacity=".42"/>
+          <text x="873" y="218" fill="#f4f7fb" font-size="34" font-weight="700" font-family="Arial, sans-serif">${escapeXml(position.toUpperCase())}</text>
+          <text x="1522" y="218" text-anchor="end" fill="${pnlColor}" font-size="42" font-weight="700" font-family="Arial, sans-serif">${escapeXml(pnlText)}</text>
+          <text x="873" y="330" fill="#7f9cbd" font-size="17" font-weight="700" font-family="Arial, sans-serif">EMOTION</text>
+          <text x="873" y="370" fill="#f4f7fb" font-size="29" font-family="Arial, sans-serif">${escapeXml(trade.emotion || "Not recorded")}</text>
+          <line x1="838" y1="404" x2="1558" y2="404" stroke="#6384aa" stroke-opacity=".34"/>
+          <text x="873" y="455" fill="#7f9cbd" font-size="17" font-weight="700" font-family="Arial, sans-serif">SETUP</text>
+          ${textLines(setupLines, 873, setupFirstLineY)}
+          <line x1="838" y1="${journalDividerY}" x2="1558" y2="${journalDividerY}" stroke="#6384aa" stroke-opacity=".34"/>
+          <text x="873" y="${journalLabelY}" fill="#7f9cbd" font-size="17" font-weight="700" font-family="Arial, sans-serif">JOURNAL</text>
+          ${textLines(journalLines, 873, journalFirstLineY)}
+          ${avatarMarkup}
+          <circle cx="95" cy="${footerY}" r="35" fill="none" stroke="#84a9d2" stroke-width="2"/>
+          <text x="146" y="${footerY + 11}" fill="#f4f7fb" font-size="27" font-weight="700" font-family="Arial, sans-serif">@${escapeXml(username.replace(/^@/, ""))}</text>
+          <text x="1538" y="${footerY + 11}" text-anchor="end" fill="#8ca1b8" font-size="18" font-family="Arial, sans-serif">TradeMirror · Review the process. Refine the edge.</text>
+        </svg>`
+
+      const svgBlob = new Blob([svg], { type: "image/svg+xml;charset=utf-8" })
+      const svgUrl = URL.createObjectURL(svgBlob)
+      const image = new Image()
+
+      await new Promise<void>((resolve, reject) => {
+        image.onload = () => resolve()
+        image.onerror = () => reject(new Error("Could not create the journal image."))
+        image.src = svgUrl
+      })
+
+      const canvas = document.createElement("canvas")
+      canvas.width = imageWidth
+      canvas.height = imageHeight
+      const context = canvas.getContext("2d")
+      if (!context) throw new Error("Image downloads are not supported here.")
+      context.drawImage(image, 0, 0)
+      URL.revokeObjectURL(svgUrl)
+
+      const pngBlob = await new Promise<Blob | null>((resolve) =>
+        canvas.toBlob(resolve, "image/png")
+      )
+      if (!pngBlob) throw new Error("Could not create the journal download.")
+
+      const downloadUrl = URL.createObjectURL(pngBlob)
+      const link = document.createElement("a")
+      const safeInstrument = (trade.instrument || "trade")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+      link.href = downloadUrl
+      link.download = `trademirror-${safeInstrument}-${trade.trade_date}.png`
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      URL.revokeObjectURL(downloadUrl)
+    } catch (error) {
+      setJournalDownloadError(
+        error instanceof Error
+          ? error.message
+          : "Could not download this journal entry."
+      )
+    } finally {
+      setJournalDownloadLoading(false)
+    }
+  }
+
   return (
     <main className={`app-dashboard dashboard-view-${activeView}`}>
       <header className="dashboard-mobile-header">
@@ -1589,7 +1823,7 @@ export default function DashboardClient({
             </div>
 
             <div className="dashboard-weekdays">
-              {["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"].map(
+              {["MON", "TUE", "WED", "THU", "FRI", "WEEK P&L"].map(
                 (day) => (
                   <span key={day}>{day}</span>
                 )
@@ -1597,73 +1831,104 @@ export default function DashboardClient({
             </div>
 
             <div className="dashboard-calendar-grid">
-              {calendarDays.map((day) => {
-                const dateKey = format(day, "yyyy-MM-dd")
-
-                const dayTrades = initialTrades.filter(
-                  (trade) => trade.trade_date === dateKey
-                )
-
-                const latestTrade = [...dayTrades].sort(
-                  (a, b) =>
-                    new Date(b.created_at).getTime() -
-                    new Date(a.created_at).getTime()
-                )[0]
-
-                const dayPnl = latestTrade
-                  ? Number(latestTrade.pnl)
-                  : 0
-
-                const selected = dateKey === selectedDateKey
-
-                return (
-                  <button
-                    className={`dashboard-day ${
-                      selected ? "dashboard-selected-day" : ""
-                    } ${
-                      !isSameMonth(day, currentMonth)
-                        ? "outside-month"
-                        : ""
-                    }`}
-                    key={day.toISOString()}
-                    onClick={() => {
-                      setSelectedDate(day)
-                    }}
-                    onDoubleClick={() => openTradeForm(day)}
+              {calendarWeeks.map(
+                ({ weekdays, totalPnl, hasTrades }, weekIndex) => (
+                  <div
+                    className="dashboard-calendar-week"
+                    key={weekdays[0]?.toISOString() || weekIndex}
                   >
-                    <span>{format(day, "d")}</span>
+                    {weekdays.map((day) => {
+                      const dateKey = format(day, "yyyy-MM-dd")
 
-                    {latestTrade && (
-                      <span
-                        className={
-                          dayPnl < 0
-                            ? "calendar-day-pnl loss"
-                            : dayPnl > 0
-                              ? "calendar-day-pnl profit"
-                              : "calendar-day-pnl"
-                        }
-                      >
-                        {dayPnl > 0 ? "+" : dayPnl < 0 ? "-" : ""}$
-                        {Math.abs(dayPnl).toLocaleString("en-US", {
-                          maximumFractionDigits: 2,
-                        })}
-                      </span>
-                    )}
+                      const dayTrades = initialTrades.filter(
+                        (trade) => trade.trade_date === dateKey
+                      )
 
-                    {dayTrades.length === 0 && isSameMonth(day, currentMonth) && (
-                      <small
-                        className="add-day-entry"
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          openTradeForm(day)
-                        }}
-                      >
-                        <Plus size={13} />
-                      </small>
-                    )}
-                  </button>
+                      const latestTrade = [...dayTrades].sort(
+                        (a, b) =>
+                          new Date(b.created_at).getTime() -
+                          new Date(a.created_at).getTime()
+                      )[0]
+
+                      const dayPnl = latestTrade
+                        ? Number(latestTrade.pnl)
+                        : 0
+
+                      const selected = dateKey === selectedDateKey
+
+                      return (
+                        <button
+                          className={`dashboard-day ${
+                            selected ? "dashboard-selected-day" : ""
+                          } ${
+                            !isSameMonth(day, currentMonth)
+                              ? "outside-month"
+                              : ""
+                          }`}
+                          key={day.toISOString()}
+                          onClick={() => setSelectedDate(day)}
+                          onDoubleClick={() => openTradeForm(day)}
+                        >
+                          <span>{format(day, "d")}</span>
+
+                          {latestTrade && (
+                            <span
+                              className={
+                                dayPnl < 0
+                                  ? "calendar-day-pnl loss"
+                                  : dayPnl > 0
+                                    ? "calendar-day-pnl profit"
+                                    : "calendar-day-pnl"
+                              }
+                            >
+                              {dayPnl > 0 ? "+" : dayPnl < 0 ? "-" : ""}$
+                              {Math.abs(dayPnl).toLocaleString("en-US", {
+                                maximumFractionDigits: 2,
+                              })}
+                            </span>
+                          )}
+
+                          {dayTrades.length === 0 &&
+                            isSameMonth(day, currentMonth) && (
+                              <small
+                                className="add-day-entry"
+                                onClick={(event) => {
+                                  event.stopPropagation()
+                                  openTradeForm(day)
+                                }}
+                              >
+                                <Plus size={13} />
+                              </small>
+                            )}
+                        </button>
+                      )
+                    })}
+
+                    <div
+                      className={`dashboard-week-total ${
+                        !hasTrades
+                          ? "empty"
+                          : totalPnl > 0
+                            ? "profit"
+                            : totalPnl < 0
+                              ? "loss"
+                              : "neutral"
+                      }`}
+                    >
+                      <span>WEEK P&amp;L</span>
+                      <strong>
+                        {!hasTrades
+                          ? "—"
+                          : `${totalPnl > 0 ? "+" : totalPnl < 0 ? "-" : ""}$${Math.abs(
+                              totalPnl
+                            ).toLocaleString("en-US", {
+                              maximumFractionDigits: 2,
+                            })}`}
+                      </strong>
+                    </div>
+                  </div>
                 )
-              })}
+              )}
             </div>
           </article>
 
@@ -2268,6 +2533,21 @@ export default function DashboardClient({
                     <div className="journal-detail-actions">
                       <button
                         type="button"
+                        disabled={journalDownloadLoading}
+                        onClick={() => downloadJournalImage(selectedJournalTrade)}
+                      >
+                        {journalDownloadLoading ? (
+                          <LoaderCircle className="auth-spinner" size={15} />
+                        ) : (
+                          <Download size={15} />
+                        )}
+                        {journalDownloadLoading
+                          ? "Creating image..."
+                          : "Download journal"}
+                      </button>
+
+                      <button
+                        type="button"
                         onClick={() =>
                           openTradeForm(
                             new Date(
@@ -2280,6 +2560,9 @@ export default function DashboardClient({
                         <Pencil size={15} /> Edit entry
                       </button>
                     </div>
+                    {journalDownloadError && (
+                      <p className="auth-error">{journalDownloadError}</p>
+                    )}
                   </>
                 ) : (
                   <div className="journal-empty-state">

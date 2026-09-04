@@ -12442,3 +12442,65 @@ video {
 .dashboard-user strong {
   color: #9fc8ff !important;
 }
+
+/* Weekday-only overview calendar with weekly P&L totals */
+.dashboard-weekdays,
+.dashboard-calendar-grid {
+  grid-template-columns: repeat(5, minmax(0, 1fr)) minmax(96px, 0.85fr);
+}
+
+.dashboard-calendar-week {
+  display: contents;
+}
+
+.dashboard-calendar-week > .dashboard-day {
+  border-bottom: 1px solid rgba(151, 180, 214, 0.08);
+}
+
+.dashboard-calendar-week:last-child > .dashboard-day,
+.dashboard-calendar-week:last-child > .dashboard-week-total {
+  border-bottom: 0;
+}
+
+.dashboard-week-total {
+  min-height: 68px;
+  padding: 9px 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: space-between;
+  border-bottom: 1px solid rgba(151, 180, 214, 0.08);
+  background: rgba(124, 159, 213, 0.045);
+}
+
+.dashboard-week-total span {
+  color: #667789;
+  font-size: 0.54rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.dashboard-week-total strong {
+  font-size: 0.7rem;
+  font-weight: 750;
+}
+
+.dashboard-week-total.profit strong {
+  color: #66e3ad;
+}
+
+.dashboard-week-total.loss strong {
+  color: #ff7474;
+}
+
+.dashboard-week-total.neutral strong,
+.dashboard-week-total.empty strong {
+  color: #8795a8;
+}
+
+@media (max-width: 1050px) {
+  .dashboard-weekdays,
+  .dashboard-calendar-grid {
+    min-width: 610px;
+  }
+}
