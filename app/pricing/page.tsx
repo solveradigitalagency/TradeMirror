@@ -22,13 +22,14 @@ const freeFeatures = [
 ]
 
 const proFeatures = [
-  "Automatic trade importing",
-  "Connected prop-firm accounts",
-  "Multiple trading accounts",
+  "AI trade capture",
+  "Automatic trade imports",
+  "Weekly AI reviews",
   "Advanced performance analytics",
-  "Unlimited screenshot storage",
-  "Verified trading results",
-  "Weekly journal summaries",
+  "Multiple trading accounts",
+  "Payout and expense tracking",
+  "Tax-ready exports",
+  "Expanded screenshot storage",
 ]
 
 export default function PricingPage() {
@@ -61,6 +62,7 @@ export default function PricingPage() {
 
             <div className="plan-price">
               <strong>$0</strong>
+
               <div>
                 <span>forever</span>
                 <small>No credit card required</small>
@@ -72,7 +74,10 @@ export default function PricingPage() {
               understanding your trades.
             </p>
 
-            <Link href="/signup" className="button button-primary plan-button">
+            <Link
+              href="/signup"
+              className="button button-primary plan-button"
+            >
               Start journaling free
               <ArrowRight size={18} />
             </Link>
@@ -108,7 +113,10 @@ export default function PricingPage() {
               </div>
 
               <div>
-                <span className="plan-type">FOR CONNECTED TRADERS</span>
+                <span className="plan-type">
+                  FOR CONNECTED TRADERS
+                </span>
+
                 <h2>TradeMirror Pro</h2>
               </div>
             </div>
