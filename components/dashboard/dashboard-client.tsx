@@ -1307,23 +1307,26 @@ export default function DashboardClient({
       ])
 
       const journalLines = wrapLines(
-        trade.journal || "No journal notes recorded."
+        trade.journal || "No journal notes recorded.",
+        68
       )
-      const setupLines = wrapLines(trade.setup || "No setup recorded.")
-      const imageWidth = 1600
-      const panelTop = 157
-      const setupFirstLineY = 498
-      const setupBottomY =
-        setupFirstLineY + Math.max(0, setupLines.length - 1) * 37 + 48
-      const journalDividerY = Math.max(548, setupBottomY)
-      const journalLabelY = journalDividerY + 52
-      const journalFirstLineY = journalDividerY + 98
-      const journalBottomY =
-        journalFirstLineY + Math.max(0, journalLines.length - 1) * 37 + 48
-      const panelHeight = Math.max(680, journalBottomY - panelTop + 28)
-      const imageHeight = panelTop + panelHeight + 163
-      const footerY = imageHeight - 83
-      const screenshotHeight = panelHeight - 50
+      const setupLines = wrapLines(
+        trade.setup || "No setup recorded.",
+        64
+      )
+      const imageWidth = 1200
+      const contentX = 62
+      const contentWidth = 1076
+      const screenshotY = 178
+      const screenshotHeight = 520
+      const tradeCardY = screenshotY + screenshotHeight + 38
+      const tradeCardHeight = 140
+      const setupCardY = tradeCardY + tradeCardHeight + 24
+      const setupCardHeight = Math.max(126, 82 + setupLines.length * 31)
+      const journalCardY = setupCardY + setupCardHeight + 24
+      const journalCardHeight = Math.max(260, 94 + journalLines.length * 32)
+      const footerY = journalCardY + journalCardHeight + 66
+      const imageHeight = footerY + 68
       const pnl = Number(trade.pnl)
       const pnlText = `${pnl > 0 ? "+" : pnl < 0 ? "-" : ""}$${Math.abs(
         pnl
@@ -1341,57 +1344,55 @@ export default function DashboardClient({
         lines: string[],
         x: number,
         firstY: number,
-        color = "#c6d1dc"
+        color = "#c7d1dc",
+        fontSize = 25,
+        lineHeight = 32
       ) =>
         lines
           .map(
             (line, index) =>
-              `<text x="${x}" y="${firstY + index * 37}" fill="${color}" font-size="25" font-family="Arial, sans-serif">${escapeXml(line)}</text>`
+              `<text x="${x}" y="${firstY + index * lineHeight}" fill="${color}" font-size="${fontSize}" font-family="Arial, sans-serif">${escapeXml(line)}</text>`
           )
           .join("")
 
       const logoMarkup = logoDataUrl
-        ? `<image href="${logoDataUrl}" x="58" y="42" width="330" height="82" preserveAspectRatio="xMinYMid meet"/>`
-        : `<text x="62" y="101" fill="#f4f7fb" font-size="48" font-weight="700" font-family="Arial, sans-serif">TradeMirror</text>`
+        ? `<image href="${logoDataUrl}" x="62" y="38" width="270" height="70" preserveAspectRatio="xMinYMid meet"/>`
+        : `<text x="62" y="82" fill="#f4f7fb" font-size="42" font-weight="700" font-family="Arial, sans-serif">TradeMirror</text>`
       const avatarMarkup = avatarDataUrl
-        ? `<image href="${avatarDataUrl}" x="62" y="${footerY - 33}" width="66" height="66" preserveAspectRatio="xMidYMid slice" clip-path="url(#avatarClip)"/>`
-        : `<circle cx="95" cy="${footerY}" r="33" fill="#1c3852"/><text x="95" y="${footerY + 11}" text-anchor="middle" fill="#b9d5f5" font-size="32" font-weight="700" font-family="Arial, sans-serif">${escapeXml(firstName.charAt(0).toUpperCase())}</text>`
+        ? `<image href="${avatarDataUrl}" x="62" y="${footerY - 24}" width="48" height="48" preserveAspectRatio="xMidYMid slice" clip-path="url(#avatarClip)"/>`
+        : `<circle cx="86" cy="${footerY}" r="24" fill="#1c3852"/><text x="86" y="${footerY + 8}" text-anchor="middle" fill="#b9d5f5" font-size="23" font-weight="700" font-family="Arial, sans-serif">${escapeXml(firstName.charAt(0).toUpperCase())}</text>`
       const screenshotMarkup = screenshotDataUrl
-        ? `<image href="${screenshotDataUrl}" x="61" y="183" width="730" height="${screenshotHeight}" preserveAspectRatio="xMidYMid meet" clip-path="url(#shotClip)"/>`
-        : `<rect x="61" y="183" width="730" height="${screenshotHeight}" fill="#0a1621"/><text x="426" y="${183 + screenshotHeight / 2}" text-anchor="middle" fill="#71859a" font-size="25" font-family="Arial, sans-serif">No trade screenshot added</text>`
+        ? `<image href="${screenshotDataUrl}" x="${contentX}" y="${screenshotY}" width="${contentWidth}" height="${screenshotHeight}" preserveAspectRatio="xMidYMid meet" clip-path="url(#shotClip)"/>`
+        : `<rect x="${contentX}" y="${screenshotY}" width="${contentWidth}" height="${screenshotHeight}" fill="#0a1621"/><text x="600" y="${screenshotY + screenshotHeight / 2}" text-anchor="middle" fill="#71859a" font-size="25" font-family="Arial, sans-serif">No trade screenshot added</text>`
 
       const svg = `
         <svg xmlns="http://www.w3.org/2000/svg" width="${imageWidth}" height="${imageHeight}" viewBox="0 0 ${imageWidth} ${imageHeight}">
           <defs>
-            <linearGradient id="background" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#06101a"/><stop offset="0.52" stop-color="#0b1c2e"/><stop offset="1" stop-color="#153f78"/></linearGradient>
-            <radialGradient id="glow"><stop stop-color="#326fc8" stop-opacity=".26"/><stop offset="1" stop-color="#07111b" stop-opacity="0"/></radialGradient>
-            <clipPath id="shotClip"><rect x="61" y="183" width="730" height="${screenshotHeight}" rx="22"/></clipPath>
-            <clipPath id="avatarClip"><circle cx="95" cy="${footerY}" r="33"/></clipPath>
+            <linearGradient id="background" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#07131f"/><stop offset="1" stop-color="#081723"/></linearGradient>
+            <clipPath id="shotClip"><rect x="${contentX}" y="${screenshotY}" width="${contentWidth}" height="${screenshotHeight}" rx="20"/></clipPath>
+            <clipPath id="avatarClip"><circle cx="86" cy="${footerY}" r="24"/></clipPath>
           </defs>
-          <rect width="1600" height="${imageHeight}" rx="38" fill="url(#background)"/>
-          <circle cx="1450" cy="50" r="600" fill="url(#glow)"/>
+          <rect width="1200" height="${imageHeight}" fill="url(#background)"/>
           ${logoMarkup}
-          <text x="1538" y="74" text-anchor="end" fill="#f4f7fb" font-size="31" font-weight="700" font-family="Arial, sans-serif">${escapeXml(trade.instrument || "Trade")}</text>
-          <text x="1538" y="111" text-anchor="end" fill="#9cafc3" font-size="20" font-family="Arial, sans-serif">${escapeXml(format(new Date(`${trade.trade_date}T12:00:00`), "MMMM d, yyyy"))}</text>
-          <rect x="42" y="${panelTop}" width="770" height="${panelHeight}" rx="25" fill="#10233a" fill-opacity=".76" stroke="#6384aa" stroke-opacity=".52"/>
-          <text x="61" y="143" fill="#8ca5c1" font-size="17" font-weight="700" font-family="Arial, sans-serif">TRADE SCREENSHOT</text>
+          <text x="62" y="121" fill="#7990a8" font-size="17" font-weight="700" letter-spacing="1.2" font-family="Arial, sans-serif">TRADE JOURNAL</text>
+          <text x="1138" y="76" text-anchor="end" fill="#9eacbb" font-size="22" font-family="Arial, sans-serif">${escapeXml(format(new Date(`${trade.trade_date}T12:00:00`), "MMMM d, yyyy"))}</text>
+          <rect x="${contentX}" y="${screenshotY}" width="${contentWidth}" height="${screenshotHeight}" rx="20" fill="#0d1d2b" stroke="#263c50" stroke-width="2"/>
           ${screenshotMarkup}
-          <rect x="838" y="${panelTop}" width="720" height="${panelHeight}" rx="25" fill="#10233a" fill-opacity=".76" stroke="#6384aa" stroke-opacity=".52"/>
-          <line x1="838" y1="276" x2="1558" y2="276" stroke="#6384aa" stroke-opacity=".42"/>
-          <text x="873" y="218" fill="#f4f7fb" font-size="34" font-weight="700" font-family="Arial, sans-serif">${escapeXml(position.toUpperCase())}</text>
-          <text x="1522" y="218" text-anchor="end" fill="${pnlColor}" font-size="42" font-weight="700" font-family="Arial, sans-serif">${escapeXml(pnlText)}</text>
-          <text x="873" y="330" fill="#7f9cbd" font-size="17" font-weight="700" font-family="Arial, sans-serif">EMOTION</text>
-          <text x="873" y="370" fill="#f4f7fb" font-size="29" font-family="Arial, sans-serif">${escapeXml(trade.emotion || "Not recorded")}</text>
-          <line x1="838" y1="404" x2="1558" y2="404" stroke="#6384aa" stroke-opacity=".34"/>
-          <text x="873" y="455" fill="#7f9cbd" font-size="17" font-weight="700" font-family="Arial, sans-serif">SETUP</text>
-          ${textLines(setupLines, 873, setupFirstLineY)}
-          <line x1="838" y1="${journalDividerY}" x2="1558" y2="${journalDividerY}" stroke="#6384aa" stroke-opacity=".34"/>
-          <text x="873" y="${journalLabelY}" fill="#7f9cbd" font-size="17" font-weight="700" font-family="Arial, sans-serif">JOURNAL</text>
-          ${textLines(journalLines, 873, journalFirstLineY)}
+          <rect x="${contentX}" y="${tradeCardY}" width="${contentWidth}" height="${tradeCardHeight}" rx="20" fill="#0d1d2b" stroke="#263c50" stroke-width="2"/>
+          <text x="94" y="${tradeCardY + 60}" fill="#f3f6fa" font-size="42" font-weight="700" font-family="Arial, sans-serif">${escapeXml(trade.instrument || "Trade")}</text>
+          <text x="94" y="${tradeCardY + 103}" fill="#8294a6" font-size="23" font-family="Arial, sans-serif">${escapeXml(position.toLowerCase())}</text>
+          <text x="1104" y="${tradeCardY + 78}" text-anchor="end" fill="${pnlColor}" font-size="38" font-weight="700" font-family="Arial, sans-serif">${escapeXml(pnlText)}</text>
+          <rect x="${contentX}" y="${setupCardY}" width="${contentWidth}" height="${setupCardHeight}" rx="20" fill="#0d1d2b" stroke="#263c50" stroke-width="2"/>
+          <text x="94" y="${setupCardY + 40}" fill="#7590ab" font-size="17" font-weight="700" letter-spacing="1" font-family="Arial, sans-serif">SETUP</text>
+          ${textLines(setupLines, 94, setupCardY + 82, "#c7d1dc", 26, 31)}
+          <rect x="${contentX}" y="${journalCardY}" width="${contentWidth}" height="${journalCardHeight}" rx="20" fill="#0d1d2b" stroke="#263c50" stroke-width="2"/>
+          <text x="94" y="${journalCardY + 42}" fill="#7590ab" font-size="17" font-weight="700" letter-spacing="1" font-family="Arial, sans-serif">JOURNAL REVIEW</text>
+          ${textLines(journalLines, 94, journalCardY + 86, "#c7d1dc", 25, 32)}
           ${avatarMarkup}
-          <circle cx="95" cy="${footerY}" r="35" fill="none" stroke="#84a9d2" stroke-width="2"/>
-          <text x="146" y="${footerY + 11}" fill="#f4f7fb" font-size="27" font-weight="700" font-family="Arial, sans-serif">@${escapeXml(username.replace(/^@/, ""))}</text>
-          <text x="1538" y="${footerY + 11}" text-anchor="end" fill="#8ca1b8" font-size="18" font-family="Arial, sans-serif">TradeMirror · Review the process. Refine the edge.</text>
+          <circle cx="86" cy="${footerY}" r="25" fill="none" stroke="#7e9dba" stroke-width="2"/>
+          <text x="124" y="${footerY + 8}" fill="#edf3f8" font-size="22" font-weight="700" font-family="Arial, sans-serif">@${escapeXml(username.replace(/^@/, ""))}</text>
+          <text x="600" y="${footerY + 7}" text-anchor="middle" fill="#74899e" font-size="18" font-family="Arial, sans-serif">${escapeXml(trade.emotion || "Not recorded")} · ${escapeXml(trade.execution_rating || "Not rated")} · ${trade.followed_plan === false ? "Plan not followed" : "Plan followed"}</text>
+          <text x="1138" y="${footerY + 7}" text-anchor="end" fill="#74899e" font-size="18" font-family="Arial, sans-serif">Review the process. Refine the edge.</text>
         </svg>`
 
       const svgBlob = new Blob([svg], { type: "image/svg+xml;charset=utf-8" })
