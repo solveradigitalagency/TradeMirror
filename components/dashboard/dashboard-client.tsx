@@ -8,6 +8,7 @@ import {
 } from "react"
 import { useRouter } from "next/navigation"
 import {
+  addDays,
   addMonths,
   eachDayOfInterval,
   endOfMonth,
@@ -114,6 +115,16 @@ const initialForm = {
   followedPlan: "yes",
   executionRating: "Good execution",
   visibility: "private",
+}
+
+function getFirstWeekdayOfMonth(month: Date) {
+  const firstDay = startOfMonth(month)
+  const weekday = firstDay.getDay()
+
+  if (weekday === 6) return addDays(firstDay, 2)
+  if (weekday === 0) return addDays(firstDay, 1)
+
+  return firstDay
 }
 
 export default function DashboardClient({
@@ -523,16 +534,23 @@ export default function DashboardClient({
     return Array.from(
       { length: Math.ceil(allCalendarDays.length / 7) },
       (_, weekIndex) => {
-        const weekdays = allCalendarDays
-          .slice(weekIndex * 7, weekIndex * 7 + 7)
-          .slice(0, 5)
+        const days = allCalendarDays.slice(
+          weekIndex * 7,
+          weekIndex * 7 + 7
+        )
 
-        const weekTrades = weekdays.flatMap((day) => {
-          const dateKey = format(day, "yyyy-MM-dd")
-          return initialTrades.filter(
-            (trade) => trade.trade_date === dateKey
+        const weekTrades = days
+          .filter(
+            (day) =>
+              day.getDay() !== 6 &&
+              isSameMonth(day, currentMonth)
           )
-        })
+          .flatMap((day) => {
+            const dateKey = format(day, "yyyy-MM-dd")
+            return initialTrades.filter(
+              (trade) => trade.trade_date === dateKey
+            )
+          })
 
         const latestTradeByDate = new Map<string, Trade>()
 
@@ -554,11 +572,13 @@ export default function DashboardClient({
         )
 
         return {
-          weekdays,
+          days,
           totalPnl,
           hasTrades: latestTradeByDate.size > 0,
         }
       }
+    ).filter(({ days }) =>
+      days.some((day) => isSameMonth(day, currentMonth))
     )
   }, [currentMonth, initialTrades])
 
@@ -1800,22 +1820,34 @@ export default function DashboardClient({
               <div className="calendar-month-controls">
                 <button
                   aria-label="Previous month"
-                  onClick={() =>
-                    setCurrentMonth((month) => subMonths(month, 1))
-                  }
+                  onClick={() => {
+                    const previousMonth = subMonths(currentMonth, 1)
+                    setCurrentMonth(previousMonth)
+                    setSelectedDate(
+                      getFirstWeekdayOfMonth(previousMonth)
+                    )
+                  }}
                 >
                   <ChevronLeft size={17} />
                 </button>
 
-                <button onClick={() => setCurrentMonth(new Date())}>
+                <button
+                  onClick={() => {
+                    const today = new Date()
+                    setCurrentMonth(today)
+                    setSelectedDate(today)
+                  }}
+                >
                   Today
                 </button>
 
                 <button
                   aria-label="Next month"
-                  onClick={() =>
-                    setCurrentMonth((month) => addMonths(month, 1))
-                  }
+                  onClick={() => {
+                    const nextMonth = addMonths(currentMonth, 1)
+                    setCurrentMonth(nextMonth)
+                    setSelectedDate(getFirstWeekdayOfMonth(nextMonth))
+                  }}
                 >
                   <ChevronRight size={17} />
                 </button>
@@ -1823,7 +1855,7 @@ export default function DashboardClient({
             </div>
 
             <div className="dashboard-weekdays">
-              {["MON", "TUE", "WED", "THU", "FRI", "WEEK P&L"].map(
+              {["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN", "WEEK P&L"].map(
                 (day) => (
                   <span key={day}>{day}</span>
                 )
@@ -1832,17 +1864,26 @@ export default function DashboardClient({
 
             <div className="dashboard-calendar-grid">
               {calendarWeeks.map(
-                ({ weekdays, totalPnl, hasTrades }, weekIndex) => (
+                ({ days, totalPnl, hasTrades }, weekIndex) => (
                   <div
                     className="dashboard-calendar-week"
-                    key={weekdays[0]?.toISOString() || weekIndex}
+                    key={days[0]?.toISOString() || weekIndex}
                   >
-                    {weekdays.map((day) => {
+                    {days.map((day) => {
                       const dateKey = format(day, "yyyy-MM-dd")
-
-                      const dayTrades = initialTrades.filter(
-                        (trade) => trade.trade_date === dateKey
+                      const isCurrentMonthDay = isSameMonth(
+                        day,
+                        currentMonth
                       )
+                      const isSaturdayDay = day.getDay() === 6
+                      const isLoggableDay =
+                        isCurrentMonthDay && !isSaturdayDay
+
+                      const dayTrades = isLoggableDay
+                        ? initialTrades.filter(
+                            (trade) => trade.trade_date === dateKey
+                          )
+                        : []
 
                       const latestTrade = [...dayTrades].sort(
                         (a, b) =>
@@ -1854,20 +1895,30 @@ export default function DashboardClient({
                         ? Number(latestTrade.pnl)
                         : 0
 
-                      const selected = dateKey === selectedDateKey
+                      const selected =
+                        isLoggableDay && dateKey === selectedDateKey
 
                       return (
                         <button
                           className={`dashboard-day ${
                             selected ? "dashboard-selected-day" : ""
                           } ${
-                            !isSameMonth(day, currentMonth)
+                            !isCurrentMonthDay
                               ? "outside-month"
+                              : ""
+                          } ${
+                            isSaturdayDay
+                              ? "saturday-disabled"
                               : ""
                           }`}
                           key={day.toISOString()}
-                          onClick={() => setSelectedDate(day)}
-                          onDoubleClick={() => openTradeForm(day)}
+                          disabled={!isLoggableDay}
+                          onClick={() => {
+                            if (isLoggableDay) setSelectedDate(day)
+                          }}
+                          onDoubleClick={() => {
+                            if (isLoggableDay) openTradeForm(day)
+                          }}
                         >
                           <span>{format(day, "d")}</span>
 
@@ -1889,7 +1940,7 @@ export default function DashboardClient({
                           )}
 
                           {dayTrades.length === 0 &&
-                            isSameMonth(day, currentMonth) && (
+                            isLoggableDay && (
                               <small
                                 className="add-day-entry"
                                 onClick={(event) => {

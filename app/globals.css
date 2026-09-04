@@ -12443,10 +12443,10 @@ video {
   color: #9fc8ff !important;
 }
 
-/* Weekday-only overview calendar with weekly P&L totals */
+/* Monday-Sunday overview calendar with disabled Saturdays and weekly P&L */
 .dashboard-weekdays,
 .dashboard-calendar-grid {
-  grid-template-columns: repeat(5, minmax(0, 1fr)) minmax(96px, 0.85fr);
+  grid-template-columns: repeat(7, minmax(0, 1fr)) minmax(96px, 0.85fr);
 }
 
 .dashboard-calendar-week {
@@ -12455,6 +12455,24 @@ video {
 
 .dashboard-calendar-week > .dashboard-day {
   border-bottom: 1px solid rgba(151, 180, 214, 0.08);
+}
+
+.dashboard-calendar-week > .dashboard-day:nth-child(7) {
+  border-right: 1px solid rgba(151, 180, 214, 0.08);
+}
+
+.dashboard-day.saturday-disabled {
+  color: #66717e;
+  background: rgba(0, 0, 0, 0.09);
+  cursor: not-allowed;
+}
+
+.dashboard-day.saturday-disabled:hover {
+  background: rgba(0, 0, 0, 0.09);
+}
+
+.dashboard-day.saturday-disabled .add-day-entry {
+  display: none;
 }
 
 .dashboard-calendar-week:last-child > .dashboard-day,
@@ -12501,6 +12519,6 @@ video {
 @media (max-width: 1050px) {
   .dashboard-weekdays,
   .dashboard-calendar-grid {
-    min-width: 610px;
+    min-width: 820px;
   }
 }
